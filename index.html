@@ -709,19 +709,53 @@
                 URL.revokeObjectURL(a.href);
             };
 
+            // --- Alternancia entre mapa normal y satelital ---
+            let mapMode = "normal";  // estado actual del mapa ("normal" o "satellite")
+            let tileLayerNormal, tileLayerSat;
+            
             document.getElementById("btnShowMap").onclick = () => {
                 const mapDiv = document.getElementById("map");
                 mapDiv.style.display = "block";
+                const btn = document.getElementById("btnShowMap");
+            
+                // Crear mapa si no existe
                 if (!map) {
                     map = L.map("map");
-                    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+                    tileLayerNormal = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                        maxZoom: 19,
+                        attribution: "© OpenStreetMap"
+                    }).addTo(map);
+            
+                    tileLayerSat = L.tileLayer(
+                        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                        {
+                            maxZoom: 19,
+                            attribution: "© Esri, Maxar, Earthstar Geographics"
+                        }
+                    );
+            
                     layerLine = L.geoJSON(null, { style: { color: "#0ea5e9", weight: 3 } }).addTo(map);
                     layerPostesFiltered = L.layerGroup().addTo(map);
                     map.setView([-9.4, -77.57], 12);
                 }
+            
+                // Alternar modo
+                if (mapMode === "normal") {
+                    map.removeLayer(tileLayerNormal);
+                    tileLayerSat.addTo(map);
+                    mapMode = "satellite";
+                    btn.textContent = "Ver mapa (OSM)";
+                } else {
+                    map.removeLayer(tileLayerSat);
+                    tileLayerNormal.addTo(map);
+                    mapMode = "normal";
+                    btn.textContent = "Ver satélite";
+                }
+            
+                // Redibujar elementos
                 layerLine.clearLayers();
                 layerPostesFiltered.clearLayers();
-
+            
                 if (line) {
                     layerLine.addData(line);
                     map.fitBounds(layerLine.getBounds(), { padding: [20, 20] });
@@ -736,6 +770,7 @@
                     map.fitBounds(group.getBounds(), { padding: [20, 20] });
                 }
             };
+
 
             // Estado inicial
             setLineLoaded(false);
