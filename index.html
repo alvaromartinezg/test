@@ -547,7 +547,7 @@
 
         <!-- === NUEVA TARJETA: Diseño de postes de Madera (ADICIÓN) === -->
         <div id="designCard" class="card" style="display:none;">
-            <h3 style="margin:6px 0 12px;">Diseñar postes de Madera</h3>
+            <h3 style="margin:6px 0 12px;">Diseñar postes</h3>
             <div class="row">
                 <label class="pill">Origen:
                     <select id="designStart"></select>
@@ -555,6 +555,14 @@
                 <label class="pill">Fin:
                     <select id="designEnd"></select>
                 </label>
+                <label class="pill">Categoría:
+                  <select id="designCategory">
+                    <option value="pbm">POSTE MADERA</option>
+                    <option value="pb">Poste Existente</option>
+                    <option value="lt">Poste Baja tensión</option>
+                  </select>
+                </label>
+
                 <label class="pill">Distancia (m):
                     <input id="designSpacing" type="number" value="60" min="5" step="1">
                 </label>
@@ -796,22 +804,41 @@
             function escapeXml(s) { return s.replace(/[<>&'"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c])); }
 
             function buildKML(rows) {
-                const header = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>`;
-                const footer = `</Document></kml>`;
-                const style = `<Style id="line"><LineStyle><color>ff00aaff</color><width>3</width></LineStyle></Style>
-                   <Style id="pt"><IconStyle><color>ff10b981</color><scale>1.1</scale>
-                   <Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-blank.png</href></Icon></IconStyle></Style>`;
-                let linePlm = "";
-                if (line) {
-                    const coords = line.geometry.coordinates.map(([lon, lat]) => `${lon},${lat},0`).join(" ");
-                    const lName = (lineName && typeof lineName === "string") ? lineName : "Línea";
-                    linePlm = `<Placemark><name>${escapeXml(lName)}</name><styleUrl>#line</styleUrl><LineString><coordinates>${coords}</coordinates></LineString></Placemark>`;
-
-
-                }
-                const ptsPlm = rows.map(r => `<Placemark><name>${escapeXml(r.name)}</name><styleUrl>#pt</styleUrl><Point><coordinates>${r.lon},${r.lat},0</coordinates></Point></Placemark>`).join("");
-                return header + style + linePlm + ptsPlm + footer;
+              const header = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>`;
+              const footer = `</Document></kml>`;
+            
+              // Colores KML = aabbggrr (alpha primero)
+              const KML_STYLE = {
+                pbm: { id: "pt_pbm", color: "ff481de1" }, // #e11d48 -> aabbggrr
+                pb:  { id: "pt_pb",  color: "ff80726b" }, // #6b7280
+                lt:  { id: "pt_lt",  color: "ff8b7464" }, // #64748b
+                def: { id: "pt_def", color: "ff10b981" }  // fallback (verde)
+              };
+            
+              const style =
+                `<Style id="line"><LineStyle><color>ff00aaff</color><width>3</width></LineStyle></Style>
+                 <Style id="${KML_STYLE.pbm.id}"><IconStyle><color>${KML_STYLE.pbm.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-blank.png</href></Icon></IconStyle></Style>
+                 <Style id="${KML_STYLE.pb.id}"><IconStyle><color>${KML_STYLE.pb.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href></Icon></IconStyle></Style>
+                 <Style id="${KML_STYLE.lt.id}"><IconStyle><color>${KML_STYLE.lt.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/blu-blank.png</href></Icon></IconStyle></Style>
+                 <Style id="${KML_STYLE.def.id}"><IconStyle><color>${KML_STYLE.def.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-blank.png</href></Icon></IconStyle></Style>`;
+            
+              let linePlm = "";
+              if (line) {
+                const coords = line.geometry.coordinates.map(([lon, lat]) => `${lon},${lat},0`).join(" ");
+                const lName = (lineName && typeof lineName === "string") ? lineName : "Línea";
+                linePlm = `<Placemark><name>${escapeXml(lName)}</name><styleUrl>#line</styleUrl><LineString><coordinates>${coords}</coordinates></LineString></Placemark>`;
+              }
+            
+              const ptsPlm = rows.map(r => {
+                // Elige estilo por tipo (dtype), default si no existe
+                const key = (r.dtype === "pbm" || r.dtype === "pb" || r.dtype === "lt") ? r.dtype : "def";
+                const sid = KML_STYLE[key].id;
+                return `<Placemark><name>${escapeXml(r.name)}</name><styleUrl>#${sid}</styleUrl><Point><coordinates>${r.lon},${r.lat},0</coordinates></Point></Placemark>`;
+              }).join("");
+            
+              return header + style + linePlm + ptsPlm + footer;
             }
+
 
             function updateLengthComparison(rows) {
                 if (!line) { setCompareText("—"); return; }
@@ -1029,11 +1056,7 @@
                     map.fitBounds(layerLine.getBounds(), { padding: [20, 20] });
                 }
                 if (filtered.length) {
-                    filtered.forEach(p => {
-                        L.circleMarker([p.lat, p.lon], { radius: 5 })
-                            .bindPopup(`<b>${p.name}</b>`)
-                            .addTo(layerPostesFiltered);
-                    });
+                    redrawAllPostsColoring();
                     const group = L.featureGroup([layerLine, layerPostesFiltered]);
                     map.fitBounds(group.getBounds(), { padding: [20, 20] });
                 }
@@ -1069,6 +1092,35 @@
             const btnInsert = document.getElementById("btnInsertDesign");
             const btnClear = document.getElementById("btnClearDesign");
             const elDesignCount = document.getElementById("designCount");
+
+            // === CATEGORÍAS (prefijo, color, spacing por defecto) ===
+            const CATEGORY_CONFIG = {
+              pbm: { label: "POSTE MADERA",  prefix: "PBM_DESIGN",  color: "#e11d48", spacing: 60 }, // rojo
+              pb:  { label: "Poste Existente", prefix: "PB_estimate", color: "#6b7280", spacing: 40 }, // gris
+              lt:  { label: "Poste Baja tensión", prefix: "LT_estimate", color: "#64748b", spacing: 25 } // gris azulado
+            };
+            
+            const selCat = document.getElementById("designCategory");
+            
+            // contador independiente por categoría
+            const catCounters = { pbm: 0, pb: 0, lt: 0 };
+            function nextNameFor(catKey){
+              const cfg = CATEGORY_CONFIG[catKey] || CATEGORY_CONFIG.pbm;
+              catCounters[catKey] = (catCounters[catKey] || 0) + 1;
+              return `${cfg.prefix}_${String(catCounters[catKey]).padStart(2,"0")}`;
+            }
+            
+            // Si cambia la categoría, ajusta el spacing por defecto
+            selCat.addEventListener("change", () => {
+              const cfg = CATEGORY_CONFIG[selCat.value] || CATEGORY_CONFIG.pbm;
+              inputSpacing.value = cfg.spacing;
+            });
+            
+            // Al cargar la tarjeta por primera vez, setear spacing según categoría seleccionada
+            (function initDesignDefaults(){
+              const cfg = CATEGORY_CONFIG[selCat.value] || CATEGORY_CONFIG.pbm;
+              inputSpacing.value = cfg.spacing;
+            })();
 
             // Mostrar tarjeta cuando se cumpla: Extraer + Ver en mapa
             function maybeShowDesignCard() {
@@ -1138,16 +1190,25 @@
                     designLayer = L.layerGroup().addTo(map);
                 }
             }
-            function redrawDesignLayer() {
-                if (!designLayer) return;
-                designLayer.clearLayers();
-                // Dibuja sólo la previa (aún no insertada en 'filtered')
-                designGenerated.forEach(p => {
-                    L.circleMarker([p.lat, p.lon], { radius: 5, color: "#e11d48", fillColor: "#e11d48", fillOpacity: 1 })
-                        .bindPopup(`<b>${p.name}</b>`)
-                        .addTo(designLayer);
-                });
+            function redrawDesignLayer(){
+              if (!designLayer) return;
+              designLayer.clearLayers();
+              designGenerated.forEach(p=>{
+                // color según tipo
+                const col = (CATEGORY_CONFIG[p.dtype]?.color) || "#e11d48";
+                const lbl = CATEGORY_CONFIG[p.dtype]?.label || "Diseñado";
+                
+                L.circleMarker([p.lat, p.lon], { 
+                  radius: 5, 
+                  color: col, 
+                  fillColor: col, 
+                  fillOpacity: 1 
+                })
+                .bindPopup(`<b>${p.name}</b><br>${lbl}`)
+                .addTo(designLayer);
+              });
             }
+
             function clearDesignPreview() {
                 designGenerated = [];
                 elDesignCount.textContent = "0";
@@ -1168,141 +1229,136 @@
 
             // Generar postes cada 'spacingM' entre los puntos elegidos, siguiendo la línea
             function generateDesignBetween(startIdx, endIdx, spacingM) {
-                if (!line || !filtered?.length) return [];
-
-                // Asegurar orden por 'location'
-                let a = Math.min(startIdx, endIdx);
-                let b = Math.max(startIdx, endIdx);
-
-                const pA = filtered[a];
-                const pB = filtered[b];
-
-                // Proyectar ambos sobre la línea real
-                const projA = projectPointOnLine([pA.lon, pA.lat]);
-                const projB = projectPointOnLine([pB.lon, pB.lat]);
-                // Asegurar orden según progreso real sobre la línea
-                const locA = locationAlongLineFromStart(projA);
-                const locB = locationAlongLineFromStart(projB);
-                let startProj = projA, endProj = projB, startLoc = locA, endLoc = locB;
-                if (locB < locA) {
-                    startProj = projB; endProj = projA; startLoc = locB; endLoc = locA;
-                }
-
-                const segment = turf.lineSlice(startProj, endProj, line);
-                const segLenM = turf.length(segment, { units: "kilometers" }) * 1000;
-
-                const out = [];
-                for (let d = spacingM; d < segLenM; d += spacingM) {
-                    const pt = turf.along(segment, d / 1000, { units: "kilometers" });
-                    const [lon, lat] = pt.geometry.coordinates;
-                    designCounter += 1;
-                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
-                    // 'location' absoluto desde inicio de la línea
-                    const locAbs = startLoc + d;
-                    out.push({ name, lat, lon, location: locAbs, distance: 0, designed: true });
-                }
-                return out;
+              if (!line || !filtered?.length) return [];
+            
+              let a = Math.min(startIdx, endIdx);
+              let b = Math.max(startIdx, endIdx);
+            
+              const pA = filtered[a];
+              const pB = filtered[b];
+            
+              const projA = projectPointOnLine([pA.lon, pA.lat]);
+              const projB = projectPointOnLine([pB.lon, pB.lat]);
+            
+              const locA = locationAlongLineFromStart(projA);
+              const locB = locationAlongLineFromStart(projB);
+            
+              let startProj = projA, endProj = projB, startLoc = locA, endLoc = locB;
+              if (locB < locA) { startProj = projB; endProj = projA; startLoc = locB; endLoc = locA; }
+            
+              const segment = turf.lineSlice(startProj, endProj, line);
+              const segLenM = turf.length(segment, { units: "kilometers" }) * 1000;
+            
+              const out = [];
+              const cat = selCat.value; // pbm | pb | lt
+            
+              for (let d = spacingM; d < segLenM; d += spacingM) {
+                const pt = turf.along(segment, d / 1000, { units: "kilometers" });
+                const [lon, lat] = pt.geometry.coordinates;
+                const name = nextNameFor(cat);
+                const locAbs = startLoc + d;
+            
+                out.push({
+                  name, lat, lon,
+                  location: locAbs,
+                  distance: 0,
+                  designed: true,
+                  dtype: cat
+                });
+              }
+              return out;
             }
+
             // Dibuja postes desde INICIO de la línea -> poste  (useStart=true)
             // o desde poste -> FIN de la línea                  (useStart=false)
             function generateDesignFromLineToPost(useStart, postIdx, spacingM) {
-                if (!line || !filtered?.length) return [];
-
-                const lineStart = turf.point(line.geometry.coordinates[0]);
-                const lineEnd = turf.point(line.geometry.coordinates[line.geometry.coordinates.length - 1]);
-
-                const post = filtered[postIdx];
-                const postProj = turf.nearestPointOnLine(
-                    line,
-                    turf.point([post.lon, post.lat]),
-                    { units: "meters" }
-                );
-
-                let segment, startLoc;
-                if (useStart) {
-                    // INICIO (línea) -> poste
-                    segment = turf.lineSlice(lineStart, postProj, line);
-                    startLoc = 0;
-                } else {
-                    // poste -> FIN (línea)
-                    segment = turf.lineSlice(postProj, lineEnd, line);
-                    startLoc = (function () {
-                        const slice = turf.lineSlice(lineStart, postProj, line);
-                        return turf.length(slice, { units: "kilometers" }) * 1000;
-                    })();
-                }
-
-                const segLenM = turf.length(segment, { units: "kilometers" }) * 1000;
-
-                const out = [];
-                for (let d = spacingM; d < segLenM; d += spacingM) {
-                    const pt = turf.along(segment, d / 1000, { units: "kilometers" });
-                    const [lon, lat] = pt.geometry.coordinates;
-                    designCounter += 1;
-                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
-                    out.push({ name, lat, lon, location: startLoc + d, distance: 0, designed: true });
-                }
-
-                // Si el tramo es menor que el espaciamiento, dibuja 1 en el centro
-                if (out.length === 0 && segLenM > 0) {
-                    const d = segLenM / 2;
-                    const pt = turf.along(segment, d / 1000, { units: "kilometers" });
-                    const [lon, lat] = pt.geometry.coordinates;
-                    designCounter += 1;
-                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
-                    out.push({ name, lat, lon, location: startLoc + d, distance: 0, designed: true });
-                }
-
-                return out;
+              if (!line || !filtered?.length) return [];
+            
+              const lineStart = turf.point(line.geometry.coordinates[0]);
+              const lineEnd   = turf.point(line.geometry.coordinates[line.geometry.coordinates.length - 1]);
+            
+              const post = filtered[postIdx];
+              const postProj = turf.nearestPointOnLine(line, turf.point([post.lon, post.lat]), { units: "meters" });
+            
+              let segment, startLoc;
+              if (useStart) {
+                segment = turf.lineSlice(lineStart, postProj, line);
+                startLoc = 0;
+              } else {
+                segment = turf.lineSlice(postProj, lineEnd, line);
+                const slice = turf.lineSlice(lineStart, postProj, line);
+                startLoc = turf.length(slice, { units: "kilometers" }) * 1000;
+              }
+            
+              const segLenM = turf.length(segment, { units: "kilometers" }) * 1000;
+              const out = [];
+              const cat = selCat.value;
+            
+              for (let d = spacingM; d < segLenM; d += spacingM) {
+                const pt = turf.along(segment, d / 1000, { units: "kilometers" });
+                const [lon, lat] = pt.geometry.coordinates;
+                const name = nextNameFor(cat);
+            
+                out.push({ name, lat, lon, location: startLoc + d, distance: 0, designed: true, dtype: cat });
+              }
+            
+              if (out.length === 0 && segLenM > 0) {
+                const d = segLenM / 2;
+                const pt = turf.along(segment, d / 1000, { units: "kilometers" });
+                const [lon, lat] = pt.geometry.coordinates;
+                const name = nextNameFor(cat);
+                out.push({ name, lat, lon, location: startLoc + d, distance: 0, designed: true, dtype: cat });
+              }
+            
+              return out;
             }
 
-            function generateDesignAllLine(spacingM) {
-                if (!line) return [];
-                const totalLenM = turf.length(line, { units: "kilometers" }) * 1000;
 
-                const out = [];
-                for (let d = spacingM; d < totalLenM; d += spacingM) {
-                    const pt = turf.along(line, d / 1000, { units: "kilometers" });
-                    const [lon, lat] = pt.geometry.coordinates;
-                    designCounter += 1;
-                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
-                    out.push({ name, lat, lon, location: d, distance: 0, designed: true });
-                }
-
-                // Fallback: si el tramo es muy corto, dibuja 1 al centro
-                if (out.length === 0 && totalLenM > 0) {
-                    const d = totalLenM / 2;
-                    const pt = turf.along(line, d / 1000, { units: "kilometers" });
-                    const [lon, lat] = pt.geometry.coordinates;
-                    designCounter += 1;
-                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
-                    out.push({ name, lat, lon, location: d, distance: 0, designed: true });
-                }
-
-                return out;
+           function generateDesignAllLine(spacingM) {
+              if (!line) return [];
+              const totalLenM = turf.length(line, { units: "kilometers" }) * 1000;
+            
+              const out = [];
+              const cat = selCat.value;
+            
+              for (let d = spacingM; d < totalLenM; d += spacingM) {
+                const pt = turf.along(line, d / 1000, { units: "kilometers" });
+                const [lon, lat] = pt.geometry.coordinates;
+                const name = nextNameFor(cat);
+                out.push({ name, lat, lon, location: d, distance: 0, designed: true, dtype: cat });
+              }
+            
+              if (out.length === 0 && totalLenM > 0) {
+                const d = totalLenM / 2;
+                const pt = turf.along(line, d / 1000, { units: "kilometers" });
+                const [lon, lat] = pt.geometry.coordinates;
+                const name = nextNameFor(cat);
+                out.push({ name, lat, lon, location: d, distance: 0, designed: true, dtype: cat });
+              }
+              return out;
             }
 
 
             // Redibuja el mapa con 'filtered' completo, coloreando los diseñados distinto
-            function redrawAllPostsColoring() {
-                if (!map || !layerPostesFiltered) return;
-                layerPostesFiltered.clearLayers();
-
-                const markers = [];
-                filtered.forEach(p => {
-                    const isDesigned = !!p.designed;
-                    const opts = isDesigned
-                        ? { radius: 5, color: "#e11d48", fillColor: "#e11d48", fillOpacity: 1 }
-                        : { radius: 5 };
-                    markers.push(L.circleMarker([p.lat, p.lon], opts).bindPopup(`<b>${p.name}</b>`).addTo(layerPostesFiltered));
-                });
-
-                // Ajuste de vista (usar capa existente + línea si hay)
-                if (layerLine) {
-                    const group = L.featureGroup([layerLine, layerPostesFiltered]);
-                    try { map.fitBounds(group.getBounds(), { padding: [20, 20] }); } catch (_) { }
-                }
+           function redrawAllPostsColoring(){
+              if (!layerPostesFiltered) return;
+              layerPostesFiltered.clearLayers();
+            
+              filtered.forEach(p => {
+                const col = p.designed ? (CATEGORY_CONFIG[p.dtype]?.color || "#e11d48") : "#333";
+                const lbl = CATEGORY_CONFIG[p.dtype]?.label || (p.designed ? "Diseñado" : "Existente");
+            
+                L.circleMarker([p.lat, p.lon], {
+                  radius: 5,
+                  color: col,
+                  fillColor: col,
+                  fillOpacity: 1
+                })
+                .bindPopup(`<b>${p.name}</b><br>${lbl}`)
+                .addTo(layerPostesFiltered);
+              });
             }
+
 
             // Botón: Previsualizar
             // Previsualizar (única versión)
