@@ -324,6 +324,43 @@
         #statusPosts {
           display: none !important;
         }
+        /* Layout 1/2 + 1/2 para coordenadas y estadísticas */
+        .two-cols{
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          align-items: start;
+        }
+        @media (max-width: 960px){
+          .two-cols{ grid-template-columns: 1fr; }
+        }
+        
+        .stats-card{
+          background: #fff;
+          border: 1px solid rgba(0,0,0,.06);
+          border-radius: 14px;
+          padding: 12px 14px;
+          box-shadow: 0 8px 24px rgba(0,0,0,.05);
+        }
+        .stats-card h4{
+          margin: 4px 0 10px;
+          font-size: 15px;
+          color: #0E4051;
+        }
+        
+        .stats-grid{
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 6px 10px;
+          align-items: center;
+        }
+        
+        /* Asegura que el textarea no intente ocupar todo por CSS heredado */
+        .two-cols textarea#output{
+          width: 100%;
+          min-height: 260px;
+        }
+        
     </style>
 
 </head>
@@ -362,9 +399,39 @@
         </div>
 
         <div class="card">
-            <div id="compare" class="kpi muted">Comparación de longitudes: <b>—</b></div>
+          <div id="compare" class="kpi muted">Comparación de longitudes: <b>—</b></div>
+        
+          <div class="two-cols">
+            <!-- Izquierda: coordenadas -->
             <textarea id="output" placeholder="INICIO;lat;lon&#10;Nombre;lat;lon&#10;...&#10;FIN;lat;lon"></textarea>
+        
+            <!-- Derecha: estadísticas de tramos -->
+            <div class="stats-card">
+              <h4>Tramos por distancia</h4>
+              <div class="stats-grid">
+                <div>KV100 <span class="muted">(&lt;100 m)</span></div>
+                <div><b id="kv100">0</b></div>
+        
+                <div>KV200 <span class="muted">(&lt;200 m)</span></div>
+                <div><b id="kv200">0</b></div>
+        
+                <div>KV300 <span class="muted">(&lt;300 m)</span></div>
+                <div><b id="kv300">0</b></div>
+        
+                <div>KV500 <span class="muted">(&lt;500 m)</span></div>
+                <div><b id="kv500">0</b></div>
+        
+                <div>KV1000 <span class="muted">(&lt;1000 m)</span></div>
+                <div><b id="kv1000">0</b></div>
+              </div>
+        
+              <div class="muted" style="font-size:12px;margin-top:8px;">
+                * Cuenta tramos consecutivos de postes con distancia menor al umbral (cumulativo).
+              </div>
+            </div>
+          </div>
         </div>
+
 
         <!-- === NUEVA TARJETA: Diseño de postes de Madera (ADICIÓN) === -->
         <div id="designCard" class="card" style="display:none;">
@@ -621,6 +688,45 @@
                 const f = n => n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
                 setCompareText(`Original: ${f(originalLenM)} m | Generada (uniendo postes): ${f(generatedLenM)} m | Δ: ${f(dif)} m`);
             }
+            // ====== Cálculo de tramos por distancia (cumulativo) ======
+            const KV_THRESHOLDS = [100, 200, 300, 500, 1000];
+            
+            function distanceM(a, b){
+              // a, b: {lat, lon}
+              const pa = turf.point([a.lon, a.lat]);
+              const pb = turf.point([b.lon, b.lat]);
+              return turf.distance(pa, pb, { units: "kilometers" }) * 1000;
+            }
+            
+            function recalcSegmentStats(){
+              const spans = {
+                100: document.getElementById("kv100"),
+                200: document.getElementById("kv200"),
+                300: document.getElementById("kv300"),
+                500: document.getElementById("kv500"),
+                1000: document.getElementById("kv1000")
+              };
+            
+              // Reset si no hay suficiente data
+              if (!filtered || filtered.length < 2){
+                KV_THRESHOLDS.forEach(t => { if (spans[t]) spans[t].textContent = "0"; });
+                return;
+              }
+            
+              // Aseguramos orden por 'location' si existe
+              const rows = [...filtered].sort((a,b) => (a.location ?? 0) - (b.location ?? 0));
+            
+              // Cuentas acumulativas: <100, <200, ...
+              const counts = {100:0, 200:0, 300:0, 500:0, 1000:0};
+            
+              for (let i = 0; i < rows.length - 1; i++){
+                const d = distanceM(rows[i], rows[i+1]);
+                KV_THRESHOLDS.forEach(t => { if (d < t) counts[t]++; });
+              }
+            
+              KV_THRESHOLDS.forEach(t => { if (spans[t]) spans[t].textContent = String(counts[t]); });
+            }
+
 
             // ---------- Eventos UI ----------
             document.getElementById("btnPickLine").onclick = () => document.getElementById("fileLine").click();
@@ -676,6 +782,7 @@
                 document.getElementById("output").value = resultToTextOrdered(filtered);
                 setResultCount(filtered.length);
                 updateLengthComparison(filtered);
+                recalcSegmentStats();
             };
 
             document.getElementById("btnCopy").onclick = async () => {
@@ -1107,6 +1214,7 @@
 
                 // 5) Refrescar selects (lista creció)
                 refreshDesignSelectors();
+                recalcSegmentStats();
 
                 alert("Postes diseñados insertados en el resultado.");
             });
