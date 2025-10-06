@@ -808,18 +808,12 @@
               const footer = `</Document></kml>`;
             
               // Colores KML = aabbggrr (alpha primero)
-              const KML_STYLE = {
-                pbm: { id: "pt_pbm", color: "ff481de1" }, // #e11d48 -> aabbggrr
-                pb:  { id: "pt_pb",  color: "ff80726b" }, // #6b7280
-                lt:  { id: "pt_lt",  color: "ff8b7464" }, // #64748b
-                def: { id: "pt_def", color: "ff10b981" }  // fallback (verde)
-              };
-            
               const style =
                 `<Style id="line"><LineStyle><color>ff00aaff</color><width>3</width></LineStyle></Style>
                  <Style id="${KML_STYLE.pbm.id}"><IconStyle><color>${KML_STYLE.pbm.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-blank.png</href></Icon></IconStyle></Style>
                  <Style id="${KML_STYLE.pb.id}"><IconStyle><color>${KML_STYLE.pb.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href></Icon></IconStyle></Style>
                  <Style id="${KML_STYLE.lt.id}"><IconStyle><color>${KML_STYLE.lt.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/blu-blank.png</href></Icon></IconStyle></Style>
+                 <Style id="${KML_STYLE.mt.id}"><IconStyle><color>${KML_STYLE.mt.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-blank.png</href></Icon></IconStyle></Style>
                  <Style id="${KML_STYLE.def.id}"><IconStyle><color>${KML_STYLE.def.color}</color><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-blank.png</href></Icon></IconStyle></Style>`;
             
               let linePlm = "";
@@ -830,8 +824,7 @@
               }
             
               const ptsPlm = rows.map(r => {
-                // Elige estilo por tipo (dtype), default si no existe
-                const key = (r.dtype === "pbm" || r.dtype === "pb" || r.dtype === "lt") ? r.dtype : "def";
+                const key = (r && r.dtype && KML_STYLE[r.dtype]) ? r.dtype : "def";
                 const sid = KML_STYLE[key].id;
                 return `<Placemark><name>${escapeXml(r.name)}</name><styleUrl>#${sid}</styleUrl><Point><coordinates>${r.lon},${r.lat},0</coordinates></Point></Placemark>`;
               }).join("");
@@ -964,7 +957,11 @@
                 if (!postsLoaded) { await ensurePostsLoaded(); if (!postsLoaded) return; }
 
                 const radius = Number(document.getElementById("radius").value) || 20;
-                filtered = computeAlongLine(radius);
+                  filtered = computeAlongLine(radius).map(p => ({
+                    ...p,
+                    designed: false,
+                    dtype: "mt"
+                  }));
 
                 document.getElementById("output").value = resultToTextOrdered(filtered);
                 setResultCount(filtered.length);
@@ -1094,12 +1091,19 @@
             const elDesignCount = document.getElementById("designCount");
 
             // === CATEGORÍAS (prefijo, color, spacing por defecto) ===
+              const KML_STYLE = {
+                pbm: { id: "pt_pbm", color: "ff481de1" },
+                pb:  { id: "pt_pb",  color: "ff80726b" },
+                lt:  { id: "pt_lt",  color: "ff8b7464" },
+                mt:  { id: "pt_mt",  color: "ff81b910" },  // ✅ verde MT correcto
+                def: { id: "pt_def", color: "ff81b910" }   // fallback = verde MT
+              };
             const CATEGORY_CONFIG = {
-              pbm: { label: "POSTE MADERA",  prefix: "PBM_DESIGN",  color: "#e11d48", spacing: 60 }, // rojo
-              pb:  { label: "Poste Existente", prefix: "PB_estimate", color: "#6b7280", spacing: 40 }, // gris
-              lt:  { label: "Poste Baja tensión", prefix: "LT_estimate", color: "#64748b", spacing: 25 } // gris azulado
+              pbm: { label: "POSTE MADERA",      prefix: "PBM_DESIGN",  color: "#e11d48", spacing: 60 },
+              pb:  { label: "Poste Existente",   prefix: "PB_estimate", color: "#6b7280", spacing: 40 },
+              lt:  { label: "Poste Baja tensión",prefix: "LT_estimate", color: "#64748b", spacing: 25 },
+              mt:  { label: "Media tensión",     prefix: "MT",          color: "#10b981", spacing: 60 }
             };
-            
             const selCat = document.getElementById("designCategory");
             
             // contador independiente por categoría
@@ -1345,8 +1349,9 @@
               layerPostesFiltered.clearLayers();
             
               filtered.forEach(p => {
-                const col = p.designed ? (CATEGORY_CONFIG[p.dtype]?.color || "#e11d48") : "#333";
-                const lbl = CATEGORY_CONFIG[p.dtype]?.label || (p.designed ? "Diseñado" : "Existente");
+                const cfg = CATEGORY_CONFIG[p.dtype] || CATEGORY_CONFIG.mt; // mt por defecto
+                const col = cfg.color;
+                const lbl = cfg.label;
             
                 L.circleMarker([p.lat, p.lon], {
                   radius: 5,
@@ -1358,6 +1363,7 @@
                 .addTo(layerPostesFiltered);
               });
             }
+
 
 
             // Botón: Previsualizar
