@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BITEL MT pole extractor v3</title>
+
+    <!-- Anti-cache del HTML -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
+    <!-- Pequeñas optimizaciones de red -->
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="dns-prefetch" href="https://unpkg.com">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script defer src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+    <script defer src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script defer src="https://unpkg.com/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"></script>
+    <script defer src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+
+    <style>
+        :root {
+            --accent: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, sans-serif;
+            background: #f3f4f6;
+            color: #111827;
+            margin: 0;
+        }
+
+        /* Apila el título debajo del logo */
+        header {
+            display: flex;
+            flex-direction: column;
+            /* 👈 clave */
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            /* espacio entre logo y título */
+            padding: 20px;
+        }
+
+        header img {
+            height: 76px;
+            width: auto;
+        }
+
+        header h1 {
+            margin: 0;
+        }
+
+        h1 {
+            font-size: 22px;
+            margin: 0;
+            font-weight: 700;
+        }
+
+        .bar {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            padding: 16px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: #2d2d2d;
+            color: white;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn.secondary {
+            background: #6b7280;
+        }
+
+        .btn.accent {
+            background: var(--accent);
+        }
+
+        .btn:disabled {
+            opacity: .6;
+            cursor: not-allowed;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, .08);
+            width: min(1100px, 92vw);
+            margin: 0 auto 18px;
+            padding: 16px;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        input[type="number"],
+        input[type="file"] {
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+        }
+
+        #map {
+            height: 520px;
+            border-radius: 12px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 180px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            padding: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .pill {
+            background: #e5e7eb;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+        }
+
+        .muted {
+            color: #6b7280;
+        }
+
+        .status {
+            font-size: 12px;
+            color: #374151;
+            display: grid;
+            grid-auto-flow: column;
+            gap: 18px;
+            width: max-content;
+        }
+
+        .ok {
+            color: #059669;
+        }
+
+        .bad {
+            color: #dc2626;
+        }
+
+        .kpi {
+            font-size: 13px;
+            margin: 6px 0 10px;
+        }
+
+        .kpi b {
+            color: #111827;
+        }
+
+        /* ===== BITEL THEME – patch portable ===== */
+        :root {
+            --bitel-yellow: #FFF200;
+            --bitel-cyan: #00B8EB;
+            --bitel-teal: #008D97;
+            --bitel-deep: #003E4F;
+            --ui-bg: #F5F7F9;
+            --ui-text: #3A3A3A;
+            --radius-xl: 20px;
+            --radius: 12px;
+            --shadow-lg: 0 18px 60px rgba(0, 0, 0, .25);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, .08);
+            --focus: 0 0 0 3px rgba(0, 184, 235, .35);
+        }
+
+        /* Marco azulado exterior */
+        body {
+            background: var(--bitel-deep) !important;
+        }
+
+        /* Tarjeta/página central */
+        .page {
+            background: var(--ui-bg);
+            max-width: 1180px;
+            min-height: 100vh;
+            margin: 18px auto;
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-lg);
+            padding: 0 20px 32px;
+        }
+
+        /* Hero amarillo con logo y título */
+        .hero {
+            background: var(--bitel-yellow);
+            border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+            padding: 26px 16px 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(0, 0, 0, .06);
+        }
+
+        .hero .logo {
+            height: 60px;
+            margin: 0 0 6px 0;
+        }
+
+        .hero h1 {
+            color: var(--bitel-deep) !important;
+            font-weight: 800;
+            margin: 8px 0 0;
+            font-size: clamp(22px, 2.6vw, 28px);
+        }
+
+        /* Cards y áreas blancas */
+        .card {
+            border-radius: 14px !important;
+            box-shadow: var(--shadow-md) !important;
+            border: 1px solid rgba(0, 0, 0, .06);
+        }
+
+        #map {
+            border-radius: 14px !important;
+        }
+
+        textarea {
+            border-radius: 14px !important;
+            border: 1px solid rgba(0, 0, 0, .06) !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, .05);
+        }
+
+        /* Barra y campos */
+        .bar {
+            padding: 18px;
+            gap: 12px;
+        }
+
+        input[type="number"],
+        input[type="file"] {
+            border: 1.5px solid rgba(0, 0, 0, .14) !important;
+            border-radius: 12px !important;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--bitel-cyan) !important;
+            box-shadow: var(--focus) !important;
+        }
+
+        .pill {
+            background: #eef2f5;
+        }
+
+        /* Botones: cian primario, azul profundo para el resto */
+        .btn {
+            background: #0E4051;
+            color: #E8FBFF;
+            border: none;
+            border-radius: var(--radius) !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+            transition: background .15s ease, transform .04s ease, box-shadow .2s ease;
+        }
+
+        .btn:hover {
+            background: var(--bitel-teal);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn.accent {
+            background: var(--bitel-cyan) !important;
+            color: #003244 !important;
+            font-weight: 700;
+            box-shadow: 0 4px 14px rgba(0, 184, 235, .25);
+        }
+
+        .btn.accent:hover {
+            background: var(--bitel-teal) !important;
+            color: #fff !important;
+        }
+
+        .hero .logo {
+            height: 76px;
+            /* ajusta 60–90px al gusto para igualar la otra página */
+            width: auto;
+            display: block;
+            margin: 0 auto 8px;
+            /* centrado y un poco de espacio con el título */
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+        <header class="hero">
+            <img src="bitel_logo.png" class="logo" alt="bitel">
+            <h1>Fiber designer over MT</h1>
+        </header>
+
+
+        <div class="bar">
+            <input id="fileLine" type="file" accept=".kmz,.kml" hidden />
+            <button class="btn accent" id="btnPickLine">Seleccionar Línea KMZ/KML</button>
+            <span class="pill">Base: <b id="baseName">postes.csv.zip</b></span>
+            <label class="pill">Radio (m): <input id="radius" type="number" value="20" min="1"></label>
+            <button class="btn" id="btnExtract">Extraer</button>
+            <button class="btn" id="btnCopy">Copiar</button>
+            <button class="btn" id="btnDownloadTXT">Descargar TXT</button>
+            <button class="btn" id="btnDownloadKMZ">Descargar KMZ</button>
+            <button class="btn secondary" id="btnShowMap">Ver en mapa</button>
+        </div>
+
+        <div class="card">
+            <div class="row muted" style="margin-bottom:8px;">
+                <span>La app cargará <b>postes.csv.zip</b> cuando lo necesite. También puedes cargar CSV(s)
+                    manualmente:</span>
+                <input id="filePosts" type="file" accept=".csv" multiple>
+            </div>
+            <div class="status">
+                <div id="statusPosts">Postes cargados: <b>0</b></div>
+                <div id="statusLine">Línea: <b class="bad">no cargada</b></div>
+                <div id="statusResult">Filtrados: <b>0</b></div>
+            </div>
+            <div id="map" style="display:none; margin-top:10px;"></div>
+        </div>
+
+        <div class="card">
+            <div id="compare" class="kpi muted">Comparación de longitudes: <b>—</b></div>
+            <textarea id="output" placeholder="INICIO;lat;lon&#10;Nombre;lat;lon&#10;...&#10;FIN;lat;lon"></textarea>
+        </div>
+
+        <!-- === NUEVA TARJETA: Diseño de postes de Madera (ADICIÓN) === -->
+        <div id="designCard" class="card" style="display:none;">
+            <h3 style="margin:6px 0 12px;">Diseñar postes de Madera</h3>
+            <div class="row">
+                <label class="pill">Origen:
+                    <select id="designStart"></select>
+                </label>
+                <label class="pill">Fin:
+                    <select id="designEnd"></select>
+                </label>
+                <label class="pill">Distancia (m):
+                    <input id="designSpacing" type="number" value="60" min="5" step="1">
+                </label>
+                <button class="btn" id="btnPreviewDesign">Previsualizar</button>
+                <button class="btn accent" id="btnInsertDesign" disabled>Insertar al resultado</button>
+                <button class="btn secondary" id="btnClearDesign">Limpiar diseño actual</button>
+            </div>
+            <div class="kpi muted">Generados: <b id="designCount">0</b></div>
+            <div class="muted" style="font-size:12px;">
+                1) Elige origen y fin (de los postes extraídos). 2) Define distancia. 3) Previsualiza (en rojo). 4)
+                Inserta
+                al resultado (TXT/KMZ se actualizarán). Puedes repetir cuantas veces quieras.
+            </div>
+        </div>
+
+    </div> <!-- /.page -->
+    <script>
+        (function () {
+            const ZIP_NAME = "postes.csv.zip";
+            let postes = [];          // [{name, lat, lon}]
+            let filtered = [];        // [{name, lat, lon, location, distance}]
+            const INICIO_VALUE = -1;   // sentinel para inicio real de la LÍNEA
+            let FIN_VALUE = null; // se setea dinámicamente = filtered.length
+            let line = null;          // Feature<LineString>
+            let lineName = "";  // nombre de la linea cargada
+            let map, layerLine, layerPostesFiltered;
+            let postsLoaded = false;
+
+            // ---------- Estado UI ----------
+            const elBase = document.getElementById("baseName");
+            const stPosts = document.getElementById("statusPosts");
+            const stLine = document.getElementById("statusLine");
+            const stRes = document.getElementById("statusResult");
+            const elCompare = document.getElementById("compare");
+            function setPostsCount(n) { stPosts.innerHTML = "Postes cargados: <b>" + n + "</b>"; }
+            function setLineLoaded(ok) {
+                stLine.innerHTML = "Línea: <b class='" + (ok ? "ok" : "bad") + "'>" + (ok ? "cargada" : "no cargada") + "</b>";
+            }
+            function setResultCount(n) { stRes.innerHTML = "Filtrados: <b>" + n + "</b>"; }
+            function setCompareText(t) { elCompare.innerHTML = "Comparación de longitudes: <b>" + t + "</b>"; }
+
+            // ---------- Utilidades ----------
+            async function fetchBlob(url) {
+                const r = await fetch(url + "?v=" + Date.now(), { cache: "no-store" });
+                if (!r.ok) throw new Error("No se pudo cargar " + url);
+                return await r.blob();
+            }
+
+            // PapaParse en worker (no bloquea la UI)
+            function parseCSVWithPapaAsync(text) {
+                return new Promise((resolve) => {
+                    const out = [];
+                    Papa.parse(text, {
+                        header: true,
+                        skipEmptyLines: true,
+                        worker: true,
+                        step: (row) => {
+                            const r = row.data;
+
+                            // Lee lat/lon con los alias más comunes
+                            const lat = parseFloat(r.Latitud ?? r.lat ?? r.LAT ?? r.latitude ?? r.Latitude);
+                            const lon = parseFloat(r.Longitud ?? r.lon ?? r.LON ?? r.longitude ?? r.Longitude);
+
+                            // ✅ Usar directamente la columna "name" (primera del CSV)
+                            let name = (r.name ?? r.Nombre ?? r.NOMBRE ?? r.NAME ?? "").toString().trim();
+
+                            if (!isNaN(lat) && !isNaN(lon)) {
+                                if (!name) name = "Poste"; // Fallback simple
+                                out.push({ name, lat, lon });
+                            }
+                        },
+                        complete: () => resolve(out)
+                    });
+                });
+            }
+
+            async function loadCSVFromZip(zipName = ZIP_NAME) {
+                const blob = await fetchBlob(zipName);
+                const zip = await JSZip.loadAsync(blob);
+                const entry = Object.keys(zip.files).find(n => n.toLowerCase().endsWith(".csv"));
+                if (!entry) throw new Error("El ZIP no contiene un CSV");
+                const csvText = await zip.files[entry].async("text");
+                return await parseCSVWithPapaAsync(csvText);
+            }
+
+            // ← ESTA ES LA FUNCIÓN QUE YA TIENES
+            async function ensurePostsLoaded() {
+                if (postsLoaded) return;
+                try {
+                    postes = await loadCSVFromZip(ZIP_NAME);
+                    postsLoaded = true;
+                    setPostsCount(postes.length);
+                    elBase.textContent = `${ZIP_NAME} (${postes.length} pts)`;
+                } catch (e) {
+                    console.warn("No se pudo cargar postes.csv.zip automáticamente:", e);
+                    elBase.textContent = `${ZIP_NAME} (no cargado)`;
+                    alert("No se pudo cargar postes.csv.zip. Puedes cargar CSV(s) manualmente.");
+                }
+            }
+
+            async function readKMZtoKMLText(file) {
+                const zip = await JSZip.loadAsync(file);
+                const kmlEntry = Object.keys(zip.files).find(n => n.toLowerCase().endsWith(".kml"));
+                if (!kmlEntry) throw new Error("El KMZ no contiene un KML");
+                return await zip.files[kmlEntry].async("text");
+            }
+
+            function parseKmlTextToGeoJSON(kmlText) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(kmlText, "text/xml");
+                return toGeoJSON.kml(doc);
+            }
+
+            function lineStringFromGeojson(gj) {
+                for (const f of gj.features || []) {
+                    if (f.geometry && f.geometry.type === "LineString") return f;
+                }
+                return null;
+            }
+
+            // --- Prefiltro por BBOX + margen ---
+            function metersToLatDeg(m) { return m / 111320; }
+            function metersToLonDegAtLat(m, latDeg) {
+                const k = 111320 * Math.cos(latDeg * Math.PI / 180);
+                return m / (k === 0 ? 1 : k);
+            }
+            function bboxWithMargin(lineFeature, marginM) {
+                const [minLon, minLat, maxLon, maxLat] = turf.bbox(lineFeature);
+                const midLat = (minLat + maxLat) / 2;
+                const dLat = metersToLatDeg(marginM);
+                const dLon = metersToLonDegAtLat(marginM, midLat);
+                return [minLon - dLon, minLat - dLat, maxLon + dLon, maxLat + dLat];
+            }
+            function preselectByBbox(points, bbox) {
+                const [minLon, minLat, maxLon, maxLat] = bbox;
+                return points.filter(p => (
+                    p.lat >= minLat && p.lat <= maxLat &&
+                    p.lon >= minLon && p.lon <= maxLon
+                ));
+            }
+
+            // --- Cálculo final (solo sobre candidatos del bbox) ---
+            function computeAlongLine(radiusM) {
+                if (!line || !postes.length) return [];
+                const bbox = bboxWithMargin(line, radiusM + 30); // holgura
+                const candidates = preselectByBbox(postes, bbox);
+
+                const startCoord = line.geometry.coordinates[0];
+                const startPt = turf.point(startCoord);
+                const out = [];
+
+                for (const p of candidates) {
+                    const pt = turf.point([p.lon, p.lat]);
+                    const distM = turf.pointToLineDistance(pt, line, { units: "meters" });
+                    if (distM > radiusM) continue;
+
+                    const proj = turf.nearestPointOnLine(line, pt, { units: "meters" });
+                    const slice = turf.lineSlice(startPt, proj, line);
+                    const locM = turf.length(slice, { units: "kilometers" }) * 1000;
+
+                    out.push({ ...p, distance: distM, location: locM });
+                }
+                out.sort((a, b) => a.location - b.location);
+                return out;
+            }
+
+            function resultToTextOrdered(rows) {
+                if (!line) return "";
+                const start = line.geometry.coordinates[0];
+                const end = line.geometry.coordinates[line.geometry.coordinates.length - 1];
+                const lines = [];
+                lines.push(`INICIO;${start[1].toFixed(6)};${start[0].toFixed(6)}`);
+                rows.forEach(r => lines.push(`${r.name};${r.lat.toFixed(6)};${r.lon.toFixed(6)}`));
+                lines.push(`FIN;${end[1].toFixed(6)};${end[0].toFixed(6)}`);
+                return lines.join("\n");
+            }
+
+            function escapeXml(s) { return s.replace(/[<>&'"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c])); }
+
+            function buildKML(rows) {
+                const header = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>`;
+                const footer = `</Document></kml>`;
+                const style = `<Style id="line"><LineStyle><color>ff00aaff</color><width>3</width></LineStyle></Style>
+                   <Style id="pt"><IconStyle><color>ff10b981</color><scale>1.1</scale>
+                   <Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-blank.png</href></Icon></IconStyle></Style>`;
+                let linePlm = "";
+                if (line) {
+                    const coords = line.geometry.coordinates.map(([lon, lat]) => `${lon},${lat},0`).join(" ");
+                    const lName = (lineName && typeof lineName === "string") ? lineName : "Línea";
+                    linePlm = `<Placemark><name>${escapeXml(lName)}</name><styleUrl>#line</styleUrl><LineString><coordinates>${coords}</coordinates></LineString></Placemark>`;
+
+
+                }
+                const ptsPlm = rows.map(r => `<Placemark><name>${escapeXml(r.name)}</name><styleUrl>#pt</styleUrl><Point><coordinates>${r.lon},${r.lat},0</coordinates></Point></Placemark>`).join("");
+                return header + style + linePlm + ptsPlm + footer;
+            }
+
+            function updateLengthComparison(rows) {
+                if (!line) { setCompareText("—"); return; }
+                const originalLenM = turf.length(line, { units: "kilometers" }) * 1000;
+                const start = line.geometry.coordinates[0];
+                const end = line.geometry.coordinates[line.geometry.coordinates.length - 1];
+                const genCoords = [start, ...rows.map(r => [r.lon, r.lat]), end];
+                const generatedLenM = genCoords.length >= 2
+                    ? turf.length(turf.lineString(genCoords), { units: "kilometers" }) * 1000
+                    : 0;
+                const dif = generatedLenM - originalLenM;
+                const f = n => n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+                setCompareText(`Original: ${f(originalLenM)} m | Generada (uniendo postes): ${f(generatedLenM)} m | Δ: ${f(dif)} m`);
+            }
+
+            // ---------- Eventos UI ----------
+            document.getElementById("btnPickLine").onclick = () => document.getElementById("fileLine").click();
+
+            document.getElementById("fileLine").addEventListener("change", async (ev) => {
+                const file = ev.target.files[0]; if (!file) return;
+                let kmlText;
+                if (file.name.toLowerCase().endsWith(".kmz")) kmlText = await readKMZtoKMLText(file);
+                else kmlText = await file.text();
+                const gj = parseKmlTextToGeoJSON(kmlText);
+                line = lineStringFromGeojson(gj);
+                setLineLoaded(!!line);
+                // Intentar derivar un nombre para la línea
+                (function () {
+                    // 1) Del feature (toGeoJSON usualmente pone properties.name si existe)
+                    const fromFeature = (line && line.properties && typeof line.properties.name === "string")
+                        ? line.properties.name.trim() : "";
+
+                    // 2) Del <name> del Document/Placemark en el KML original
+                    let fromKml = "";
+                    try {
+                        const kmlDoc = new DOMParser().parseFromString(kmlText, "text/xml");
+                        const nameNode = kmlDoc.querySelector("Document > name") || kmlDoc.querySelector("Placemark > name");
+                        if (nameNode && nameNode.textContent) fromKml = nameNode.textContent.trim();
+                    } catch (_) { /* noop */ }
+
+                    // 3) Del nombre del archivo como último recurso
+                    const baseFromFile = file.name.replace(/\.(kmz|kml)$/i, "");
+
+                    lineName = fromFeature || fromKml || baseFromFile;
+
+                    // Refrescar el estado visual para que se vea el nombre en la UI
+                    // Reutilizamos el elemento ya existente de estado:
+                    try {
+                        const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+                        document.getElementById("statusLine").innerHTML = "Línea: <b class='ok'>" + esc(lineName) + "</b>";
+                    } catch (_) { }
+                })();
+
+                if (!line) { alert("No se encontró una LineString en el archivo."); return; }
+                setCompareText("—");
+                // PRECARGA la base justo después de cargar la línea
+                await ensurePostsLoaded();
+            });
+
+            // Carga manual de CSV(s) (fallback)
+            document.getElementById("filePosts").addEventListener("change", async (ev) => {
+                postes = [];
+                for (const file of ev.target.files) {
+                    const txt = await file.text();
+                    const arr = await parseCSVWithPapaAsync(txt);
+                    postes.push(...arr);
+                }
+                postsLoaded = true;
+                setPostsCount(postes.length);
+                elBase.textContent = `Cargados manualmente (${postes.length} pts)`;
+                alert("Base de postes cargada: " + postes.length + " puntos.");
+            });
+
+            document.getElementById("btnExtract").onclick = async () => {
+                if (!line) { alert("Carga primero la LÍNEA (KMZ/KML)."); return; }
+                if (!postsLoaded) { await ensurePostsLoaded(); if (!postsLoaded) return; }
+
+                const radius = Number(document.getElementById("radius").value) || 20;
+                filtered = computeAlongLine(radius);
+
+                document.getElementById("output").value = resultToTextOrdered(filtered);
+                setResultCount(filtered.length);
+                updateLengthComparison(filtered);
+            };
+
+            document.getElementById("btnCopy").onclick = async () => {
+                const txt = document.getElementById("output").value || "";
+                if (!txt) { alert("No hay contenido para copiar"); return; }
+                await navigator.clipboard.writeText(txt);
+                alert("Resultado copiado al portapapeles.");
+            };
+
+            document.getElementById("btnDownloadTXT").onclick = () => {
+                const txt = document.getElementById("output").value || "";
+                const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "postes_filtrados.txt";
+                a.click();
+                URL.revokeObjectURL(a.href);
+            };
+
+            document.getElementById("btnDownloadKMZ").onclick = async () => {
+                if (!filtered.length) { alert("Primero ejecuta 'Extraer'"); return; }
+                const kml = buildKML(filtered);
+                const zip = new JSZip();
+                const base = (lineName && typeof lineName === "string") ? lineName : "postes_filtrados";
+                zip.file(`${base}_DESIGN.kml`, kml);
+                const blob = await zip.generateAsync({ type: "blob" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `${base}_DESIGN.kmz`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+            };
+
+            document.getElementById("btnShowMap").onclick = () => {
+                const mapDiv = document.getElementById("map");
+                mapDiv.style.display = "block";
+                if (!map) {
+                    map = L.map("map");
+                    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+                    layerLine = L.geoJSON(null, { style: { color: "#0ea5e9", weight: 3 } }).addTo(map);
+                    layerPostesFiltered = L.layerGroup().addTo(map);
+                    map.setView([-9.4, -77.57], 12);
+                }
+                layerLine.clearLayers();
+                layerPostesFiltered.clearLayers();
+
+                if (line) {
+                    layerLine.addData(line);
+                    map.fitBounds(layerLine.getBounds(), { padding: [20, 20] });
+                }
+                if (filtered.length) {
+                    filtered.forEach(p => {
+                        L.circleMarker([p.lat, p.lon], { radius: 5 })
+                            .bindPopup(`<b>${p.name}</b>`)
+                            .addTo(layerPostesFiltered);
+                    });
+                    const group = L.featureGroup([layerLine, layerPostesFiltered]);
+                    map.fitBounds(group.getBounds(), { padding: [20, 20] });
+                }
+            };
+
+            // Estado inicial
+            setLineLoaded(false);
+
+            // PRECARGA en segundo plano al cargar la página (sin bloquear la UI)
+            window.addEventListener('load', () => {
+                if ('requestIdleCallback' in window) {
+                    requestIdleCallback(() => ensurePostsLoaded(), { timeout: 3000 });
+                } else {
+                    setTimeout(() => ensurePostsLoaded(), 1200);
+                }
+            });
+
+            // ======================== ADICIÓN JS: Diseño de postes ========================
+            // Estado y capas nuevas (no interfiere con lo existente)
+            let hasExtracted = false, hasShownMap = false;
+            let designLayer = null;                      // Capa de previsualización (rojo)
+            let designGenerated = [];                    // Últimos puntos generados (previa)
+            let designCounter = 0;                       // Secuencia P_Design_XX acumulada
+
+            // Referencias UI nuevas
+            const designCard = document.getElementById("designCard");
+            const selStart = document.getElementById("designStart");
+            const selEnd = document.getElementById("designEnd");
+            const inputSpacing = document.getElementById("designSpacing");
+            const btnPreview = document.getElementById("btnPreviewDesign");
+            const btnInsert = document.getElementById("btnInsertDesign");
+            const btnClear = document.getElementById("btnClearDesign");
+            const elDesignCount = document.getElementById("designCount");
+
+            // Mostrar tarjeta cuando se cumpla: Extraer + Ver en mapa
+            function maybeShowDesignCard() {
+                if (hasExtracted && hasShownMap) {
+                    designCard.style.display = "block";
+                    refreshDesignSelectors();
+                    ensureDesignLayer();
+                }
+            }
+
+            // Escucha adicional a botones existentes (NO se modifican los originales)
+            document.getElementById("btnExtract").addEventListener("click", () => {
+                hasExtracted = true;
+                // Si hay resultado, actualizar selectores
+                if (filtered && filtered.length) refreshDesignSelectors();
+                // Reset de previa al extraer de nuevo
+                clearDesignPreview();
+                maybeShowDesignCard();
+            });
+
+            document.getElementById("btnShowMap").addEventListener("click", () => {
+                hasShownMap = true;
+                ensureDesignLayer();
+                // Redibujar previa (si la hubiera)
+                redrawDesignLayer();
+                maybeShowDesignCard();
+            });
+
+            // Construye opciones de selects con los postes extraídos (ordenados por 'location')
+            function refreshDesignSelectors() {
+                if (!filtered || !filtered.length || !line) {
+                    selStart.innerHTML = "";
+                    selEnd.innerHTML = "";
+                    return;
+                }
+
+                const startCoord = line.geometry.coordinates[0];                                      // [lon,lat]
+                const endCoord = line.geometry.coordinates[line.geometry.coordinates.length - 1];   // [lon,lat]
+
+                FIN_VALUE = filtered.length;  // reservamos el valor N (después del último índice)
+
+                const optInicio = `<option value="${INICIO_VALUE}">INICIO · ${startCoord[1].toFixed(6)}, ${startCoord[0].toFixed(6)}</option>`;
+                const optFin = `<option value="${FIN_VALUE}">FIN · ${endCoord[1].toFixed(6)}, ${endCoord[0].toFixed(6)}</option>`;
+
+                const cuerpo = filtered.map((p, i) => {
+                    const loc = typeof p.location === "number" ? Math.round(p.location) : "-";
+                    return `<option value="${i}">${i.toString().padStart(3, "0")} · ${p.name} · ${loc} m</option>`;
+                }).join("");
+
+                // INICIO (línea) + postes … / … postes + FIN (línea)
+                selStart.innerHTML = optInicio + cuerpo;
+                selEnd.innerHTML = cuerpo + optFin;
+
+                // Por defecto: extremos reales de la línea
+                selStart.value = String(INICIO_VALUE);
+                selEnd.value = String(FIN_VALUE);
+            }
+
+
+
+
+
+
+            // Capa de previsualización (rojo)
+            function ensureDesignLayer() {
+                if (map && !designLayer) {
+                    designLayer = L.layerGroup().addTo(map);
+                }
+            }
+            function redrawDesignLayer() {
+                if (!designLayer) return;
+                designLayer.clearLayers();
+                // Dibuja sólo la previa (aún no insertada en 'filtered')
+                designGenerated.forEach(p => {
+                    L.circleMarker([p.lat, p.lon], { radius: 5, color: "#e11d48", fillColor: "#e11d48", fillOpacity: 1 })
+                        .bindPopup(`<b>${p.name}</b>`)
+                        .addTo(designLayer);
+                });
+            }
+            function clearDesignPreview() {
+                designGenerated = [];
+                elDesignCount.textContent = "0";
+                btnInsert.disabled = true;
+                redrawDesignLayer();
+            }
+
+            // Utilidades Turf (proyección y slicing)
+            function projectPointOnLine(ll) { // ll = [lon, lat]
+                return turf.nearestPointOnLine(line, turf.point(ll), { units: "meters" });
+            }
+            function locationAlongLineFromStart(pt) { // metros desde inicio de 'line'
+                const startPt = turf.point(line.geometry.coordinates[0]);
+                const slice = turf.lineSlice(startPt, pt, line);
+                return turf.length(slice, { units: "kilometers" }) * 1000;
+            }
+            // Genera postes entre el extremo real de la línea (inicio o fin) y un poste.
+
+            // Generar postes cada 'spacingM' entre los puntos elegidos, siguiendo la línea
+            function generateDesignBetween(startIdx, endIdx, spacingM) {
+                if (!line || !filtered?.length) return [];
+
+                // Asegurar orden por 'location'
+                let a = Math.min(startIdx, endIdx);
+                let b = Math.max(startIdx, endIdx);
+
+                const pA = filtered[a];
+                const pB = filtered[b];
+
+                // Proyectar ambos sobre la línea real
+                const projA = projectPointOnLine([pA.lon, pA.lat]);
+                const projB = projectPointOnLine([pB.lon, pB.lat]);
+                // Asegurar orden según progreso real sobre la línea
+                const locA = locationAlongLineFromStart(projA);
+                const locB = locationAlongLineFromStart(projB);
+                let startProj = projA, endProj = projB, startLoc = locA, endLoc = locB;
+                if (locB < locA) {
+                    startProj = projB; endProj = projA; startLoc = locB; endLoc = locA;
+                }
+
+                const segment = turf.lineSlice(startProj, endProj, line);
+                const segLenM = turf.length(segment, { units: "kilometers" }) * 1000;
+
+                const out = [];
+                for (let d = spacingM; d < segLenM; d += spacingM) {
+                    const pt = turf.along(segment, d / 1000, { units: "kilometers" });
+                    const [lon, lat] = pt.geometry.coordinates;
+                    designCounter += 1;
+                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
+                    // 'location' absoluto desde inicio de la línea
+                    const locAbs = startLoc + d;
+                    out.push({ name, lat, lon, location: locAbs, distance: 0, designed: true });
+                }
+                return out;
+            }
+            // Dibuja postes desde INICIO de la línea -> poste  (useStart=true)
+            // o desde poste -> FIN de la línea                  (useStart=false)
+            function generateDesignFromLineToPost(useStart, postIdx, spacingM) {
+                if (!line || !filtered?.length) return [];
+
+                const lineStart = turf.point(line.geometry.coordinates[0]);
+                const lineEnd = turf.point(line.geometry.coordinates[line.geometry.coordinates.length - 1]);
+
+                const post = filtered[postIdx];
+                const postProj = turf.nearestPointOnLine(
+                    line,
+                    turf.point([post.lon, post.lat]),
+                    { units: "meters" }
+                );
+
+                let segment, startLoc;
+                if (useStart) {
+                    // INICIO (línea) -> poste
+                    segment = turf.lineSlice(lineStart, postProj, line);
+                    startLoc = 0;
+                } else {
+                    // poste -> FIN (línea)
+                    segment = turf.lineSlice(postProj, lineEnd, line);
+                    startLoc = (function () {
+                        const slice = turf.lineSlice(lineStart, postProj, line);
+                        return turf.length(slice, { units: "kilometers" }) * 1000;
+                    })();
+                }
+
+                const segLenM = turf.length(segment, { units: "kilometers" }) * 1000;
+
+                const out = [];
+                for (let d = spacingM; d < segLenM; d += spacingM) {
+                    const pt = turf.along(segment, d / 1000, { units: "kilometers" });
+                    const [lon, lat] = pt.geometry.coordinates;
+                    designCounter += 1;
+                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
+                    out.push({ name, lat, lon, location: startLoc + d, distance: 0, designed: true });
+                }
+
+                // Si el tramo es menor que el espaciamiento, dibuja 1 en el centro
+                if (out.length === 0 && segLenM > 0) {
+                    const d = segLenM / 2;
+                    const pt = turf.along(segment, d / 1000, { units: "kilometers" });
+                    const [lon, lat] = pt.geometry.coordinates;
+                    designCounter += 1;
+                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
+                    out.push({ name, lat, lon, location: startLoc + d, distance: 0, designed: true });
+                }
+
+                return out;
+            }
+
+            function generateDesignAllLine(spacingM) {
+                if (!line) return [];
+                const totalLenM = turf.length(line, { units: "kilometers" }) * 1000;
+
+                const out = [];
+                for (let d = spacingM; d < totalLenM; d += spacingM) {
+                    const pt = turf.along(line, d / 1000, { units: "kilometers" });
+                    const [lon, lat] = pt.geometry.coordinates;
+                    designCounter += 1;
+                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
+                    out.push({ name, lat, lon, location: d, distance: 0, designed: true });
+                }
+
+                // Fallback: si el tramo es muy corto, dibuja 1 al centro
+                if (out.length === 0 && totalLenM > 0) {
+                    const d = totalLenM / 2;
+                    const pt = turf.along(line, d / 1000, { units: "kilometers" });
+                    const [lon, lat] = pt.geometry.coordinates;
+                    designCounter += 1;
+                    const name = `P_Design_${String(designCounter).padStart(2, "0")}`;
+                    out.push({ name, lat, lon, location: d, distance: 0, designed: true });
+                }
+
+                return out;
+            }
+
+
+            // Redibuja el mapa con 'filtered' completo, coloreando los diseñados distinto
+            function redrawAllPostsColoring() {
+                if (!map || !layerPostesFiltered) return;
+                layerPostesFiltered.clearLayers();
+
+                const markers = [];
+                filtered.forEach(p => {
+                    const isDesigned = !!p.designed;
+                    const opts = isDesigned
+                        ? { radius: 5, color: "#e11d48", fillColor: "#e11d48", fillOpacity: 1 }
+                        : { radius: 5 };
+                    markers.push(L.circleMarker([p.lat, p.lon], opts).bindPopup(`<b>${p.name}</b>`).addTo(layerPostesFiltered));
+                });
+
+                // Ajuste de vista (usar capa existente + línea si hay)
+                if (layerLine) {
+                    const group = L.featureGroup([layerLine, layerPostesFiltered]);
+                    try { map.fitBounds(group.getBounds(), { padding: [20, 20] }); } catch (_) { }
+                }
+            }
+
+            // Botón: Previsualizar
+            // Previsualizar (única versión)
+            btnPreview.addEventListener("click", () => {
+                if (!line) { alert("Primero carga la LÍNEA y ejecuta 'Extraer'."); return; }
+
+                const spacing = Math.max(5, Number(inputSpacing.value) || 60);
+                const startSel = parseInt(selStart.value, 10);  // -1 = INICIO
+                const endSel = parseInt(selEnd.value, 10);    // N = FIN (N = filtered.length)
+
+                if (Number.isNaN(startSel) || Number.isNaN(endSel)) {
+                    alert("Selecciona origen y fin válidos."); return;
+                }
+                if (startSel === endSel) {
+                    alert("Origen y fin no pueden ser el mismo."); return;
+                }
+
+                const lastIdx = filtered.length - 1;
+
+                if (startSel === INICIO_VALUE && endSel === FIN_VALUE) {
+                    // INICIO de la línea → FIN de la línea (toda la línea)
+                    designGenerated = generateDesignAllLine(spacing);
+                } else if (startSel === INICIO_VALUE && endSel >= 0 && endSel <= lastIdx) {
+                    // INICIO (línea) → poste
+                    designGenerated = generateDesignFromLineToPost(true, endSel, spacing);
+                } else if (endSel === FIN_VALUE && startSel >= 0 && startSel <= lastIdx) {
+                    // poste → FIN (línea)
+                    designGenerated = generateDesignFromLineToPost(false, startSel, spacing);
+                } else {
+                    // poste → poste
+                    designGenerated = generateDesignBetween(startSel, endSel, spacing);
+                }
+
+                elDesignCount.textContent = String(designGenerated.length);
+                btnInsert.disabled = designGenerated.length === 0;
+
+                ensureDesignLayer();
+                redrawDesignLayer();
+
+                if (map && (designGenerated.length || filtered.length)) {
+                    const group = L.featureGroup([]);
+                    if (layerLine) group.addLayer(layerLine);
+                    if (layerPostesFiltered) group.addLayer(layerPostesFiltered);
+                    if (designLayer) group.addLayer(designLayer);
+                    try { map.fitBounds(group.getBounds(), { padding: [20, 20] }); } catch (_) { }
+                }
+            });
+
+
+
+            // Botón: Insertar al resultado (modifica 'filtered', TXT/KMZ heredarán esto)
+            btnInsert.addEventListener("click", () => {
+                if (!designGenerated.length) { alert("Nada que insertar. Previsualiza primero."); return; }
+
+                // Insertar manteniendo el orden por 'location'
+                // 1) Unir y reordenar por 'location'
+                filtered.push(...designGenerated);
+                filtered.sort((a, b) => (a.location ?? 0) - (b.location ?? 0));
+
+                // 2) Actualizar UI heredada
+                setResultCount(filtered.length);
+                updateLengthComparison(filtered);
+                document.getElementById("output").value = resultToTextOrdered(filtered);
+
+                // 3) Redibujar mapa coloreando diseñados
+                redrawAllPostsColoring();
+
+                // 4) Limpiar previa (ya están insertados)
+                clearDesignPreview();
+
+                // 5) Refrescar selects (lista creció)
+                refreshDesignSelectors();
+
+                alert("Postes diseñados insertados en el resultado.");
+            });
+
+            // Botón: Limpiar diseño actual (solo la previsualización)
+            btnClear.addEventListener("click", () => {
+                clearDesignPreview();
+            });
+            // ====================== FIN ADICIÓN JS: Diseño de postes ======================
+
+
+        })();
+    </script>
+</body>
+
+</html>
