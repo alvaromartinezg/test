@@ -320,6 +320,10 @@
           margin-top: 12px; font-weight: 600; color: #0E4051;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        #statusPosts {
+          display: none !important;
+        }
     </style>
 
 </head>
@@ -498,7 +502,7 @@
                 try {
                     postes = await loadCSVFromZip(ZIP_NAME);
                     postsLoaded = true;
-                    setPostsCount(postes.length);
+                    // setPostsCount(postes.length);
                     if (elBase) elBase.textContent = `${ZIP_NAME} (${postes.length} pts)`;
                 } catch (e) {
                     console.warn("No se pudo cargar postes.csv.zip automáticamente:", e);
