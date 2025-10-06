@@ -299,6 +299,26 @@
             margin: 0 auto 8px;
             /* centrado y un poco de espacio con el título */
         }
+        /* === Overlay de carga === */
+        .overlay{
+          position: fixed; inset: 0; z-index: 9999;
+          display: grid; place-items: center;
+          background: rgba(0,0,0,.28);
+          backdrop-filter: blur(1.5px);
+        }
+        .overlay-card{
+          background: #fff; border-radius: var(--radius-xl);
+          padding: 22px 28px; box-shadow: var(--shadow-lg);
+          display: grid; justify-items: center; gap: 12px; min-width: 280px;
+        }
+        .overlay-text{ color:#0E4051; font-weight:700; text-align:center }
+        .spinner{
+          width: 48px; height: 48px; border-radius: 50%;
+          border: 4px solid #e5e7eb; border-top-color: var(--bitel-cyan);
+          animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin{ to { transform: rotate(360deg); } }
+       
     </style>
 </head>
 
@@ -308,7 +328,15 @@
             <img src="bitel_logo.png" class="logo" alt="bitel">
             <h1>Fiber designer over MT</h1>
         </header>
-
+        
+        <!-- Overlay de carga -->
+        <div id="appOverlay" class="overlay">
+          <div class="overlay-card">
+            <div class="spinner"></div>
+            <div class="overlay-text" id="overlayText">Cargando base de postes…</div>
+            <button id="btnRetryLoad" class="btn" style="display:none;margin-top:10px;">Reintentar</button>
+          </div>
+        </div>
 
         <div class="bar">
             <input id="fileLine" type="file" accept=".kmz,.kml" hidden />
@@ -393,7 +421,30 @@
                 if (!r.ok) throw new Error("No se pudo cargar " + url);
                 return await r.blob();
             }
+            // === Helpers de estado de UI y overlay ===
+            function setUiEnabled(enabled){
+              ["btnPickLine","btnExtract","btnCopy","btnDownloadTXT","btnDownloadKMZ","btnShowMap","radius"]
+                .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = !enabled; });
+            }
+            
+            const overlay = document.getElementById("appOverlay");
+            const overlayText = document.getElementById("overlayText");
+            const btnRetryLoad = document.getElementById("btnRetryLoad");
+            
+            function showOverlay(msg){
+              if (msg) overlayText.textContent = msg;
+              if (overlay) overlay.style.display = "grid";
+            }
+            function hideOverlay(){
+              if (overlay) overlay.style.display = "none";
+            }
 
+
+
+
+
+
+            
             // PapaParse en worker (no bloquea la UI)
             function parseCSVWithPapaAsync(text) {
                 return new Promise((resolve) => {
@@ -432,19 +483,22 @@
             }
 
             // ← ESTA ES LA FUNCIÓN QUE YA TIENES
-            async function ensurePostsLoaded() {
-                if (postsLoaded) return;
-                try {
-                    postes = await loadCSVFromZip(ZIP_NAME);
-                    postsLoaded = true;
-                    setPostsCount(postes.length);
-                    elBase.textContent = `${ZIP_NAME} (${postes.length} pts)`;
-                } catch (e) {
-                    console.warn("No se pudo cargar postes.csv.zip automáticamente:", e);
-                    elBase.textContent = `${ZIP_NAME} (no cargado)`;
-                    alert("No se pudo cargar postes.csv.zip. Puedes cargar CSV(s) manualmente.");
-                }
+            async function ensurePostsLoaded(silent = false) {
+              if (postsLoaded) return true;
+              try {
+                postes = await loadCSVFromZip(ZIP_NAME);
+                postsLoaded = true;
+                setPostsCount(postes.length);
+                elBase.textContent = `${ZIP_NAME} (${postes.length} pts)`;
+                return true;
+              } catch (e) {
+                console.warn("No se pudo cargar postes.csv.zip automáticamente:", e);
+                elBase.textContent = `${ZIP_NAME} (no cargado)`;
+                if (!silent) alert("No se pudo cargar base de datos de postes. Revise su conexión a internet o contacte administrador.");
+                return false;
+              }
             }
+
 
             async function readKMZtoKMLText(file) {
                 const zip = await JSZip.loadAsync(file);
@@ -1030,6 +1084,35 @@
             });
             // ====================== FIN ADICIÓN JS: Diseño de postes ======================
 
+            // --- Estado inicial: deshabilitar y mostrar spinner ---
+            setUiEnabled(false);
+            showOverlay("Cargando base de postes…");
+            
+            // Primer intento de carga (silencioso)
+            (async function bootLoad(){
+              const ok = await ensurePostsLoaded(true); // true = sin alert()
+              if (ok) {
+                overlayText.textContent = `Base cargada (${postes.length.toLocaleString('es-PE')} postes)`;
+                setTimeout(() => { hideOverlay(); setUiEnabled(true); }, 350);
+              } else {
+                overlayText.textContent = "No se pudo cargar postes.csv.zip. Verifica que esté junto al HTML.";
+                if (btnRetryLoad) btnRetryLoad.style.display = "inline-block";
+              }
+            })();
+            
+            // Reintento manual desde el overlay
+            btnRetryLoad?.addEventListener("click", async () => {
+              btnRetryLoad.style.display = "none";
+              overlayText.textContent = "Cargando base de postes…";
+              const ok2 = await ensurePostsLoaded(true);
+              if (ok2) {
+                overlayText.textContent = `Base cargada (${postes.length.toLocaleString('es-PE')} postes)`;
+                setTimeout(() => { hideOverlay(); setUiEnabled(true); }, 350);
+              } else {
+                btnRetryLoad.style.display = "inline-block";
+                overlayText.textContent = "Sigue sin cargarse. Asegúrate de que 'postes.csv.zip' esté en la misma carpeta.";
+              }
+            });
 
         })();
     </script>
