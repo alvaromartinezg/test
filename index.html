@@ -600,20 +600,6 @@
                 await ensurePostsLoaded();
             });
 
-            // Carga manual de CSV(s) (fallback)
-            document.getElementById("filePosts").addEventListener("change", async (ev) => {
-                postes = [];
-                for (const file of ev.target.files) {
-                    const txt = await file.text();
-                    const arr = await parseCSVWithPapaAsync(txt);
-                    postes.push(...arr);
-                }
-                postsLoaded = true;
-                setPostsCount(postes.length);
-                elBase.textContent = `Cargados manualmente (${postes.length} pts)`;
-                alert("Base de postes cargada: " + postes.length + " puntos.");
-            });
-
             document.getElementById("btnExtract").onclick = async () => {
                 if (!line) { alert("Carga primero la LÍNEA (KMZ/KML)."); return; }
                 if (!postsLoaded) { await ensurePostsLoaded(); if (!postsLoaded) return; }
