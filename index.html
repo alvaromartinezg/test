@@ -342,7 +342,33 @@
         @media (max-width: 960px){
           .two-cols{ grid-template-columns: 1fr; }
         }
-        
+        /* === Igualar estilos de la tabla de coordenadas a la tarjeta de KV === */
+            .coords-card{ 
+              font-size: 13px;            /* mismo tamaño que .stats-card .stats-grid */
+            }
+            
+            .coords-head{
+              font-size: 14px;            /* igual a subtítulo de la tarjeta derecha */
+              color: #0E4051;
+              margin: 2px 0 8px;
+              font-weight: 600;
+            }
+            
+            .coords-table th,
+            .coords-table td{
+              padding: 6px 8px;           /* más compacto para que no “grite” */
+              line-height: 1.25;
+            }
+            
+            /* Mantén el encabezado pegajoso y legible */
+            .coords-table thead th{
+              position: sticky;
+              top: 0;
+              z-index: 1;
+              background: #f8fafc;
+              font-weight: 700;
+            }
+
         .stats-card{
           background: #fff;
           border: 1px solid rgba(0,0,0,.06);
