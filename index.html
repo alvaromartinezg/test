@@ -331,6 +331,14 @@
           gap: 12px;
           align-items: start;
         }
+        /* Card/tabla de coordenadas */
+        .coords-card{
+          background:#fff;
+          border:1px solid rgba(0,0,0,.06);
+          border-radius:14px;
+          padding:10px 12px;
+          box-shadow:0 8px 24px rgba(0,0,0,.05);
+        }
         @media (max-width: 960px){
           .two-cols{ grid-template-columns: 1fr; }
         }
@@ -365,6 +373,18 @@
           color: #dc2626;
           font-weight: 700;
         }
+        /* Tamaños más sobrios para el panel derecho */
+        .stats-card h4{
+          font-size: 14px;       /* antes 15–16 */
+          margin: 2px 0 8px;
+        }
+        .stats-card .stats-grid{
+          font-size: 13px;       /* iguala a botones */
+        }
+        .stats-card .muted{
+          font-size: 12px;
+        }
+
     </style>
 
 </head>
@@ -407,7 +427,25 @@
         
           <div class="two-cols">
             <!-- Izquierda: coordenadas -->
-            <textarea id="output" placeholder="INICIO;lat;lon&#10;Nombre;lat;lon&#10;...&#10;FIN;lat;lon"></textarea>
+            <!-- Izquierda: tabla de coordenadas -->
+            <div class="coords-card">
+              <div class="coords-head">Coordenadas</div>
+              <div class="coords-body">
+                <table class="coords-table" id="coordTable">
+                  <thead>
+                    <tr><th>Nombre</th><th>Lat</th><th>Lon</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="muted" style="font-size:12px;margin-top:6px;">
+                * Se actualiza al extraer o insertar postes.
+              </div>
+            </div>
+            
+            <!-- TXT oculto (para Copiar/Descargar) -->
+            <textarea id="output" hidden></textarea>
+
         
             <!-- Derecha: estadísticas de tramos -->
             <div class="stats-card">
@@ -667,6 +705,32 @@
                 lines.push(`FIN;${end[1].toFixed(6)};${end[0].toFixed(6)}`);
                 return lines.join("\n");
             }
+            // === Tabla de coordenadas (visualización profesional) ===
+
+                // Devuelve la lista de postes incluyendo INICIO y FIN
+                function rowsWithEnds() {
+                  if (!line) return [];
+                  const start = { name: "INICIO", lat: line.geometry.coordinates[0][1], lon: line.geometry.coordinates[0][0] };
+                  const end   = { name: "FIN",    lat: line.geometry.coordinates[line.geometry.coordinates.length - 1][1],
+                                               lon: line.geometry.coordinates[line.geometry.coordinates.length - 1][0] };
+                  return [start, ...filtered, end];
+                }
+                
+                // Dibuja la tabla de coordenadas en pantalla
+                function renderCoordTable() {
+                  const tbody = document.querySelector("#coordTable tbody");
+                  if (!tbody) return;
+                
+                  const rows = rowsWithEnds();
+                  tbody.innerHTML = rows.map(r => `
+                    <tr>
+                      <td>${r.name ?? ""}</td>
+                      <td>${(r.lat ?? 0).toFixed(6)}</td>
+                      <td>${(r.lon ?? 0).toFixed(6)}</td>
+                    </tr>
+                  `).join("");
+                }
+
 
             function escapeXml(s) { return s.replace(/[<>&'"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c])); }
 
@@ -809,6 +873,7 @@
                 setResultCount(filtered.length);
                 updateLengthComparison(filtered);
                 recalcSegmentStats();
+                renderCoordTable();
             };
 
             document.getElementById("btnCopy").onclick = async () => {
@@ -1241,7 +1306,7 @@
                 // 5) Refrescar selects (lista creció)
                 refreshDesignSelectors();
                 recalcSegmentStats();
-
+                renderCoordTable();
                 alert("Postes diseñados insertados en el resultado.");
             });
 
