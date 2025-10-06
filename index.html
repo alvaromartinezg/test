@@ -711,42 +711,49 @@
               return turf.distance(pa, pb, { units: "kilometers" }) * 1000;
             }
             
-            function recalcSegmentStats(){
+            function recalcSegmentStats() {
               const spans = {
                 kv100:  document.getElementById("kv100"),
                 kv200:  document.getElementById("kv200"),
                 kv300:  document.getElementById("kv300"),
                 kv500:  document.getElementById("kv500"),
                 kv1000: document.getElementById("kv1000"),
-                kvMore: document.getElementById("kvMore"),
+                more:   document.getElementById("kvMore")
               };
             
-              const zeroAll = () => {
+              // Si no hay línea, resetea y sal
+              if (!line) {
                 Object.values(spans).forEach(el => el && (el.textContent = "0"));
-              };
-            
-              if (!filtered || filtered.length < 2){ zeroAll(); return; }
-            
-              // Asegura orden por 'location'
-              const rows = [...filtered].sort((a,b) => (a.location ?? 0) - (b.location ?? 0));
-            
-              // Contadores por bin exclusivo
-              const counts = { kv100:0, kv200:0, kv300:0, kv500:0, kv1000:0, kvMore:0 };
-            
-              for (let i = 0; i < rows.length - 1; i++){
-                const d = turf.distance(
-                  turf.point([rows[i].lon,   rows[i].lat]),
-                  turf.point([rows[i+1].lon, rows[i+1].lat]),
-                  { units: "kilometers" }
-                ) * 1000; // a metros
-            
-                if (d < 100) counts.kv100++;
-                else if (d < 200) counts.kv200++;    // [100, 200)
-                else if (d < 300) counts.kv300++;    // [200, 300)
-                else if (d < 500) counts.kv500++;    // [300, 500)
-                else if (d < 1000) counts.kv1000++;  // [500, 1000)
-                else counts.kvMore++;                // ≥1000
+                return;
               }
+            
+              const rows = buildRowsWithEndpoints();
+              if (rows.length < 2) {
+                Object.values(spans).forEach(el => el && (el.textContent = "0"));
+                return;
+              }
+            
+              const counts = { kv100:0, kv200:0, kv300:0, kv500:0, kv1000:0, more:0 };
+            
+              for (let i = 0; i < rows.length - 1; i++) {
+                const d = distanceM(rows[i], rows[i + 1]); // metros
+            
+                if      (d < 100)   counts.kv100++;
+                else if (d < 200)   counts.kv200++;   // 100–199.999...
+                else if (d < 300)   counts.kv300++;   // 200–299.999...
+                else if (d < 500)   counts.kv500++;   // 300–499.999...
+                else if (d < 1000)  counts.kv1000++;  // 500–999.999...
+                else                counts.more++;    // ≥ 1000
+              }
+            
+              if (spans.kv100)  spans.kv100.textContent  = String(counts.kv100);
+              if (spans.kv200)  spans.kv200.textContent  = String(counts.kv200);
+              if (spans.kv300)  spans.kv300.textContent  = String(counts.kv300);
+              if (spans.kv500)  spans.kv500.textContent  = String(counts.kv500);
+              if (spans.kv1000) spans.kv1000.textContent = String(counts.kv1000);
+              if (spans.more)   spans.more.textContent   = String(counts.more);
+            }
+
             
               // Escribir resultados
               Object.entries(counts).forEach(([k,v]) => { if (spans[k]) spans[k].textContent = String(v); });
@@ -1029,6 +1036,27 @@
                 const slice = turf.lineSlice(startPt, pt, line);
                 return turf.length(slice, { units: "kilometers" }) * 1000;
             }
+            // Construye la secuencia con INICIO y FIN incluidos y ordenada por 'location'
+                function buildRowsWithEndpoints() {
+                  if (!line) return [...filtered];
+                
+                  const coords = line.geometry.coordinates;
+                  if (!coords || !coords.length) return [...filtered];
+                
+                  const start = coords[0];
+                  const end   = coords[coords.length - 1];
+                  const totalLenM = turf.length(line, { units: "kilometers" }) * 1000;
+                
+                  const rows = [
+                    { name: "INICIO", lat: start[1], lon: start[0], location: 0 },
+                    ...filtered,
+                    { name: "FIN",    lat: end[1],   lon: end[0],   location: totalLenM }
+                  ];
+                
+                  rows.sort((a, b) => (a.location ?? 0) - (b.location ?? 0));
+                  return rows;
+                }
+
             // Genera postes entre el extremo real de la línea (inicio o fin) y un poste.
 
             // Generar postes cada 'spacingM' entre los puntos elegidos, siguiendo la línea
