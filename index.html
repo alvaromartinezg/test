@@ -323,11 +323,6 @@
         </div>
 
         <div class="card">
-            <div class="row muted" style="margin-bottom:8px;">
-                <span>La app cargará <b>postes.csv.zip</b> cuando lo necesite. También puedes cargar CSV(s)
-                    manualmente:</span>
-                <input id="filePosts" type="file" accept=".csv" multiple>
-            </div>
             <div class="status">
                 <div id="statusPosts">Postes cargados: <b>0</b></div>
                 <div id="statusLine">Línea: <b class="bad">no cargada</b></div>
@@ -604,20 +599,6 @@
                 setCompareText("—");
                 // PRECARGA la base justo después de cargar la línea
                 await ensurePostsLoaded();
-            });
-
-            // Carga manual de CSV(s) (fallback)
-            document.getElementById("filePosts").addEventListener("change", async (ev) => {
-                postes = [];
-                for (const file of ev.target.files) {
-                    const txt = await file.text();
-                    const arr = await parseCSVWithPapaAsync(txt);
-                    postes.push(...arr);
-                }
-                postsLoaded = true;
-                setPostsCount(postes.length);
-                elBase.textContent = `Cargados manualmente (${postes.length} pts)`;
-                alert("Base de postes cargada: " + postes.length + " puntos.");
             });
 
             document.getElementById("btnExtract").onclick = async () => {
