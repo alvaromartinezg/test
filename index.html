@@ -384,6 +384,41 @@
         .stats-card .muted{
           font-size: 12px;
         }
+        /* Contenedor con scroll para la tabla de coordenadas */
+        .coords-body{
+          max-height: 320px;     /* ajusta 240–420px a tu gusto */
+          overflow: auto;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+        }
+        
+        /* Encabezado fijo mientras haces scroll */
+        .coords-table thead th{
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          background: #f8fafc;   /* que no “desaparezca” al hacer scroll */
+        }
+        
+        /* Que no “salte” el layout y corte textos largos */
+        .coords-table{
+          table-layout: fixed;
+        }
+        .coords-table th:nth-child(1),
+        .coords-table td:nth-child(1){
+          width: 46%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .coords-table th:nth-child(2),
+        .coords-table td:nth-child(2),
+        .coords-table th:nth-child(3),
+        .coords-table td:nth-child(3){
+          width: 27%;
+          text-align: right;       /* números alineados a la derecha */
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
 
     </style>
 
