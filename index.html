@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BITEL MT pole extractor v3</title>
+    <title>BITEL MT pole extractor v5</title>
 
     <!-- Anti-cache del HTML -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -299,11 +299,38 @@
             margin: 0 auto 8px;
             /* centrado y un poco de espacio con el título */
         }
+         /* ===== Spinner Overlay ===== */
+        #loadingOverlay{
+          position: fixed; inset: 0; 
+          background: rgba(255,255,255,.75);
+          display: none;                /* oculto por defecto */
+          align-items: center; justify-content: center;
+          z-index: 9999;
+          backdrop-filter: blur(2px);
+        }
+        #loadingOverlay .loader{
+          width: 48px; height: 48px;
+          border: 4px solid #e5e7eb;
+          border-top-color: var(--bitel-cyan);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          box-shadow: 0 2px 8px rgba(0,0,0,.08);
+        }
+        #loadingOverlay .loader-text{
+          margin-top: 12px; font-weight: 600; color: #0E4051;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
+
 </head>
 
 <body>
     <div class="page">
+        <div id="loadingOverlay" aria-hidden="true">
+          <div class="loader"></div>
+          <div class="loader-text">Cargando base de postes…</div>
+        </div>
+
         <header class="hero">
             <img src="bitel_logo.png" class="logo" alt="bitel">
             <h1>Fiber designer over MT</h1>
@@ -429,6 +456,41 @@
                 const csvText = await zip.files[entry].async("text");
                 return await parseCSVWithPapaAsync(csvText);
             }
+            // ===== Control del Spinner + Timeout de 2 minutos =====
+            let loadTimeout = null;
+            
+            function showLoading() {
+              const el = document.getElementById('loadingOverlay');
+              if (el) el.style.display = 'flex';
+            
+              // Por si hubiera un timeout anterior
+              if (loadTimeout) { clearTimeout(loadTimeout); loadTimeout = null; }
+            
+              // Programa el timeout de 2 minutos (120000 ms)
+              loadTimeout = setTimeout(() => {
+                hideLoading();
+                alert("Revise su conexión a internet o contacte al administrador.");
+              }, 120000);
+            }
+            
+            function hideLoading() {
+              const el = document.getElementById('loadingOverlay');
+              if (el) el.style.display = 'none';
+              if (loadTimeout) { clearTimeout(loadTimeout); loadTimeout = null; }
+            }
+            
+            // Envuelve ensurePostsLoaded() para controlar el spinner/timeout
+            async function loadBaseWithSpinner() {
+              try {
+                showLoading();
+                await ensurePostsLoaded();   // ← tu función original que carga postes.csv.zip
+                hideLoading();               // solo si terminó OK
+              } catch (e) {
+                hideLoading();
+                // Mensaje claro (no mencionar carga manual, ya la quitaste)
+                alert("No se pudo cargar postes.csv.zip. Verifique que el archivo exista y su conexión a internet.");
+              }
+            }
 
             // ← ESTA ES LA FUNCIÓN QUE YA TIENES
             async function ensurePostsLoaded() {
@@ -437,11 +499,11 @@
                     postes = await loadCSVFromZip(ZIP_NAME);
                     postsLoaded = true;
                     setPostsCount(postes.length);
-                    elBase.textContent = `${ZIP_NAME} (${postes.length} pts)`;
+                    if (elBase) elBase.textContent = `${ZIP_NAME} (${postes.length} pts)`;
                 } catch (e) {
                     console.warn("No se pudo cargar postes.csv.zip automáticamente:", e);
-                    elBase.textContent = `${ZIP_NAME} (no cargado)`;
-                    alert("No se pudo cargar postes.csv.zip. Puedes cargar CSV(s) manualmente.");
+                    if (elBase) elBase.textContent = `${ZIP_NAME} (no cargado)`;
+                    alert("Error de carga, revise su conexión o contacte al admnistrador");
                 }
             }
 
@@ -597,7 +659,7 @@
                 if (!line) { alert("No se encontró una LineString en el archivo."); return; }
                 setCompareText("—");
                 // PRECARGA la base justo después de cargar la línea
-                await ensurePostsLoaded();
+                await loadBaseWithSpinner();
             });
 
             document.getElementById("btnExtract").onclick = async () => {
@@ -676,11 +738,12 @@
 
             // PRECARGA en segundo plano al cargar la página (sin bloquear la UI)
             window.addEventListener('load', () => {
-                if ('requestIdleCallback' in window) {
-                    requestIdleCallback(() => ensurePostsLoaded(), { timeout: 3000 });
-                } else {
-                    setTimeout(() => ensurePostsLoaded(), 1200);
-                }
+              // precargar con spinner (sin bloquear la UI)
+              if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => loadBaseWithSpinner(), { timeout: 3000 });
+              } else {
+                setTimeout(() => loadBaseWithSpinner(), 300);  // arranque rápido
+              }
             });
 
             // ======================== ADICIÓN JS: Diseño de postes ========================
