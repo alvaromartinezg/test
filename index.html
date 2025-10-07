@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BITEL MT pole extractor v5</title>
+    <title>BITEL MT pole extractor v6</title>
 
     <!-- Anti-cache del HTML -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -577,6 +577,36 @@
                 al resultado (TXT/KMZ se actualizarán). Puedes repetir cuantas veces quieras.
             </div>
         </div>
+    
+    <!-- === TARJETA: Eliminar postes (por nombre o rango) === -->
+    <div id="deleteCard" class="card" style="display:none;">
+      <h3 style="margin:6px 0 12px;">Eliminar postes</h3>
+    
+      <!-- Modo: 1 poste -->
+      <div class="row" style="margin-bottom:10px;">
+        <label class="pill">Selecciona 1 poste:
+          <select id="delOneSelect"></select>
+        </label>
+        <button class="btn" id="btnDeleteOne" title="Eliminar solo el poste seleccionado">Eliminar seleccionado</button>
+      </div>
+    
+      <!-- Modo: rango -->
+      <div class="row" style="margin-bottom:10px;">
+        <label class="pill">Desde:
+          <select id="delFromSelect"></select>
+        </label>
+        <label class="pill">Hasta:
+          <select id="delToSelect"></select>
+        </label>
+        <button class="btn secondary" id="btnDeleteRange" title="Eliminar un rango inclusive">Eliminar rango</button>
+      </div>
+    
+      <div class="muted" style="font-size:12px;">
+        * Solo elimina elementos del resultado (<b>filtered</b>). Los marcadores <b>INICIO</b> y <b>FIN</b> no se tocan.<br>
+        * El rango es inclusivo. Si inviertes el orden, se corrige automáticamente.
+      </div>
+    </div>
+
 
     </div> <!-- /.page -->
     <script>
@@ -907,7 +937,34 @@
               if (spans.kvMore) spans.kvMore.textContent = String(counts.kvMore);
               if (spans.kvTotal) spans.kvTotal.textContent = String(totalTramos);
             }
+            
+            function deleteByIndices(indices) {
+              if (!Array.isArray(indices) || !indices.length) return;
+            
+              // Crear un set para O(1)
+              const idxSet = new Set(indices);
+            
+              // Filtrar manteniendo el orden
+              const prevLen = filtered.length;
+              filtered = filtered.filter((_, i) => !idxSet.has(i));
+            
+              // Si no cambió nada, salir
+              if (filtered.length === prevLen) return;
+            
+              // 🔁 Recalcular y refrescar TODA la UI derivada
+              setResultCount(filtered.length);
+              document.getElementById("output").value = resultToTextOrdered(filtered);
+              updateLengthComparison(filtered);
+              recalcSegmentStats();
+              renderCoordTable();
+              redrawAllPostsColoring();
+            
+              // Selectores dependientes del contenido
+              refreshDesignSelectors();
+              maybeShowDeleteCard();
 
+            }
+            
             // ---------- Eventos UI ----------
             document.getElementById("btnPickLine").onclick = () => document.getElementById("fileLine").click();
 
@@ -968,6 +1025,7 @@
                 updateLengthComparison(filtered);
                 recalcSegmentStats();
                 renderCoordTable();
+                maybeShowDeleteCard();
             };
 
             document.getElementById("btnCopy").onclick = async () => {
@@ -1089,15 +1147,24 @@
             const btnInsert = document.getElementById("btnInsertDesign");
             const btnClear = document.getElementById("btnClearDesign");
             const elDesignCount = document.getElementById("designCount");
-
+            
+            // === Eliminar postes: estado y refs ===
+            const deleteCard = document.getElementById("deleteCard");
+            const selDelOne = document.getElementById("delOneSelect");
+            const selDelFrom = document.getElementById("delFromSelect");
+            const selDelTo = document.getElementById("delToSelect");
+            const btnDelOne = document.getElementById("btnDeleteOne");
+            const btnDelRange = document.getElementById("btnDeleteRange");
+            
             // === CATEGORÍAS (prefijo, color, spacing por defecto) ===
               const KML_STYLE = {
                 pbm: { id: "pt_pbm", color: "ff481de1" },
                 pb:  { id: "pt_pb",  color: "ff80726b" },
                 lt:  { id: "pt_lt",  color: "ff8b7464" },
-                mt:  { id: "pt_mt",  color: "ff81b910" },  // ✅ verde MT correcto
-                def: { id: "pt_def", color: "ff81b910" }   // fallback = verde MT
+                mt:  { id: "pt_mt",  color: "ff81b910" },
+                def: { id: "pt_def", color: "ff81b910" }
               };
+            
             const CATEGORY_CONFIG = {
               pbm: { label: "POSTE MADERA",      prefix: "PBM_DESIGN",  color: "#e11d48", spacing: 60 },
               pb:  { label: "Poste Existente",   prefix: "PB_estimate", color: "#6b7280", spacing: 40 },
@@ -1133,6 +1200,15 @@
                     refreshDesignSelectors();
                     ensureDesignLayer();
                 }
+            }
+            
+            function maybeShowDeleteCard() {
+              if (hasExtracted && filtered?.length) {
+                deleteCard.style.display = "block";
+                refreshDeleteSelectors();
+              } else {
+                deleteCard.style.display = "none";
+              }
             }
 
             // Escucha adicional a botones existentes (NO se modifican los originales)
@@ -1182,11 +1258,30 @@
                 selStart.value = String(INICIO_VALUE);
                 selEnd.value = String(FIN_VALUE);
             }
-
-
-
-
-
+                // Rellena los selects de borrado con el contenido actual de 'filtered'
+                function refreshDeleteSelectors() {
+                  if (!filtered || !filtered.length) {
+                    selDelOne.innerHTML = "";
+                    selDelFrom.innerHTML = "";
+                    selDelTo.innerHTML = "";
+                    return;
+                  }
+                  // Cada opción muestra índice, nombre y lat/lon (evita ambigüedad por nombres repetidos)
+                  const opts = filtered.map((p, i) => {
+                    const lat = (p.lat ?? 0).toFixed(6);
+                    const lon = (p.lon ?? 0).toFixed(6);
+                    const nm = (p.name ?? "").toString();
+                    return `<option value="${i}">${i.toString().padStart(3,"0")} · ${nm} · ${lat}, ${lon}</option>`;
+                  }).join("");
+                
+                  selDelOne.innerHTML = opts;
+                  selDelFrom.innerHTML = opts;
+                  selDelTo.innerHTML = opts;
+                
+                  // Defaults razonables
+                  selDelFrom.value = "0";
+                  selDelTo.value = String(filtered.length - 1);
+                }
 
             // Capa de previsualización (rojo)
             function ensureDesignLayer() {
@@ -1439,6 +1534,7 @@
                 refreshDesignSelectors();
                 recalcSegmentStats();
                 renderCoordTable();
+                maybeShowDeleteCard();
                 alert("Postes diseñados insertados en el resultado.");
             });
 
@@ -1446,6 +1542,37 @@
             btnClear.addEventListener("click", () => {
                 clearDesignPreview();
             });
+            // Eliminar 1 poste
+            btnDelOne.addEventListener("click", () => {
+              if (!filtered?.length) { alert("No hay postes en el resultado."); return; }
+              const idx = parseInt(selDelOne.value, 10);
+              if (Number.isNaN(idx) || idx < 0 || idx >= filtered.length) {
+                alert("Selecciona un poste válido."); return;
+              }
+              if (!confirm(`¿Eliminar el poste:\n${filtered[idx].name} ?`)) return;
+              deleteByIndices([idx]);
+            });
+            
+            // Eliminar rango inclusivo
+            btnDelRange.addEventListener("click", () => {
+              if (!filtered?.length) { alert("No hay postes en el resultado."); return; }
+              let a = parseInt(selDelFrom.value, 10);
+              let b = parseInt(selDelTo.value, 10);
+              if ([a,b].some(Number.isNaN)) { alert("Selecciona un rango válido."); return; }
+              if (a > b) [a, b] = [b, a]; // corrige si está invertido
+            
+              // Chequeos de límites
+              a = Math.max(0, Math.min(a, filtered.length - 1));
+              b = Math.max(0, Math.min(b, filtered.length - 1));
+              if (a > b) { alert("Rango inválido."); return; }
+            
+              if (!confirm(`¿Eliminar los postes del índice ${a} al ${b} (inclusive)?`)) return;
+            
+              const indices = [];
+              for (let i = a; i <= b; i++) indices.push(i);
+              deleteByIndices(indices);
+            });
+
             // ====================== FIN ADICIÓN JS: Diseño de postes ======================
 
 
