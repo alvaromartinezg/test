@@ -1038,6 +1038,7 @@
               refreshDesignSelectors();
               maybeShowDesignCard();
               maybeShowDeleteCard();
+              fitToDataStrict();
             };
 
 
@@ -1123,29 +1124,38 @@
               if (filtered.length) redrawAllPostsColoring();
             
               // Ajustar vista con datos válidos
-              fitToData();
+              fitToDataStrict();
             }
             
-            function fitToData(){
-              // Si hay puntos filtrados, úsalos; si no, usa la línea
-              const group = L.featureGroup([]);
-              if (layerLine && layerLine.getLayers().length) group.addLayer(layerLine);
-              if (layerPostesFiltered && layerPostesFiltered.getLayers().length) group.addLayer(layerPostesFiltered);
+            function fitToDataStrict(){
+              if (!map) return;
             
-              // Caso de 1 solo punto: centra y pon zoom razonable
-              if (layerPostesFiltered && layerPostesFiltered.getLayers().length === 1) {
-                const only = layerPostesFiltered.getLayers()[0];
-                map.setView(only.getLatLng(), 17);
+              const bounds = L.latLngBounds([]);
+            
+              // Agrega TODA la línea (si existe)
+              if (line && line.geometry && Array.isArray(line.geometry.coordinates)) {
+                line.geometry.coordinates.forEach(([lon, lat]) => {
+                  bounds.extend([lat, lon]);
+                });
+              }
+            
+              // Agrega los postes filtrados (si existen)
+              if (Array.isArray(filtered) && filtered.length) {
+                filtered.forEach(p => bounds.extend([p.lat, p.lon]));
+              }
+            
+              // Caso especial: solo 1 poste
+              if (Array.isArray(filtered) && filtered.length === 1) {
+                map.setView([filtered[0].lat, filtered[0].lon], 17);
                 return;
               }
             
-              try {
-                const bounds = group.getBounds();
-                if (bounds && bounds.isValid()) {
-                  map.fitBounds(bounds, { padding: [20, 20] });
-                }
-              } catch (_) { /* noop */ }
+              // Encuaadre final
+              if (bounds.isValid()) {
+                map.fitBounds(bounds.pad(0.15));  // un poquito de margen
+              }
             }
+
 
 
 
