@@ -1010,30 +1010,36 @@
             });
 
             document.getElementById("btnExtract").onclick = async () => {
-                if (!line) { alert("Carga primero la LÍNEA (KMZ/KML)."); return; }
-                if (!postsLoaded) { await ensurePostsLoaded(); if (!postsLoaded) return; }
-
-                const radius = Number(document.getElementById("radius").value) || 20;
-                  filtered = computeAlongLine(radius).map(p => ({
-                    ...p,
-                    designed: false,
-                    dtype: "mt"
-                  }));
-
-                document.getElementById("output").value = resultToTextOrdered(filtered);
-                setResultCount(filtered.length);
-                updateLengthComparison(filtered);
-                recalcSegmentStats();
-                renderCoordTable();
-                maybeShowDeleteCard();
-
-                showMap("satellite");
-                hasShownMap = true;
-                ensureDesignLayer();
-                redrawDesignLayer();
-                maybeShowDesignCard();
-                maybeShowDeleteCard(); // por si estaba oculto antes
+              if (!line) { alert("Carga primero la LÍNEA (KMZ/KML)."); return; }
+              if (!postsLoaded) { await ensurePostsLoaded(); if (!postsLoaded) return; }
+            
+              const radius = Number(document.getElementById("radius").value) || 20;
+              filtered = computeAlongLine(radius).map(p => ({
+                ...p,
+                designed: false,
+                dtype: "mt"
+              }));
+            
+              document.getElementById("output").value = resultToTextOrdered(filtered);
+              setResultCount(filtered.length);
+              updateLengthComparison(filtered);
+              recalcSegmentStats();
+              renderCoordTable();
+            
+              // ✅ Marca banderas ANTES del toggle de tarjetas
+              hasExtracted = true;
+              showMap("satellite");
+              hasShownMap = true;
+            
+              ensureDesignLayer();
+              redrawDesignLayer();
+            
+              // ✅ Ahora sí, con ambas banderas en true
+              refreshDesignSelectors();
+              maybeShowDesignCard();
+              maybeShowDeleteCard();
             };
+
 
             document.getElementById("btnCopy").onclick = async () => {
                 const txt = document.getElementById("output").value || "";
@@ -1092,6 +1098,9 @@
                 map.setView([-9.4, -77.57], 12);
               }
             
+              // 👇 MUY IMPORTANTE: el mapa estaba oculto → recalcula tamaño real
+              map.invalidateSize();
+            
               // Cambiar a modo solicitado
               const btn = document.getElementById("btnShowMap");
               if (preferred === "satellite" && mapMode !== "satellite") {
@@ -1113,12 +1122,31 @@
               if (line) layerLine.addData(line);
               if (filtered.length) redrawAllPostsColoring();
             
-              // Ajustar vista
-              const group = L.featureGroup([]);
-              if (layerLine) group.addLayer(layerLine);
-              if (layerPostesFiltered) group.addLayer(layerPostesFiltered);
-              try { map.fitBounds(group.getBounds(), { padding: [20, 20] }); } catch (_) {}
+              // Ajustar vista con datos válidos
+              fitToData();
             }
+            
+            function fitToData(){
+              // Si hay puntos filtrados, úsalos; si no, usa la línea
+              const group = L.featureGroup([]);
+              if (layerLine && layerLine.getLayers().length) group.addLayer(layerLine);
+              if (layerPostesFiltered && layerPostesFiltered.getLayers().length) group.addLayer(layerPostesFiltered);
+            
+              // Caso de 1 solo punto: centra y pon zoom razonable
+              if (layerPostesFiltered && layerPostesFiltered.getLayers().length === 1) {
+                const only = layerPostesFiltered.getLayers()[0];
+                map.setView(only.getLatLng(), 17);
+                return;
+              }
+            
+              try {
+                const bounds = group.getBounds();
+                if (bounds && bounds.isValid()) {
+                  map.fitBounds(bounds, { padding: [20, 20] });
+                }
+              } catch (_) { /* noop */ }
+            }
+
 
 
 
@@ -1222,17 +1250,6 @@
                 deleteCard.style.display = "none";
               }
             }
-
-
-            // Escucha adicional a botones existentes (NO se modifican los originales)
-            document.getElementById("btnExtract").addEventListener("click", () => {
-                hasExtracted = true;
-                // Si hay resultado, actualizar selectores
-                if (filtered && filtered.length) refreshDesignSelectors();
-                // Reset de previa al extraer de nuevo
-                clearDesignPreview();
-                maybeShowDesignCard();
-            });
 
             document.getElementById("btnShowMap").onclick = () => {
               // toggle simple entre normal/satélite
