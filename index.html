@@ -1026,6 +1026,13 @@
                 recalcSegmentStats();
                 renderCoordTable();
                 maybeShowDeleteCard();
+
+                showMap("satellite");
+                hasShownMap = true;
+                ensureDesignLayer();
+                redrawDesignLayer();
+                maybeShowDesignCard();
+                maybeShowDeleteCard(); // por si estaba oculto antes
             };
 
             document.getElementById("btnCopy").onclick = async () => {
@@ -1062,60 +1069,57 @@
             // --- Alternancia entre mapa normal y satelital ---
             let mapMode = "normal";  // estado actual del mapa ("normal" o "satellite")
             let tileLayerNormal, tileLayerSat;
+
+            function showMap(preferred = "satellite") {
+              const mapDiv = document.getElementById("map");
+              mapDiv.style.display = "block";
             
-            document.getElementById("btnShowMap").onclick = () => {
-                const mapDiv = document.getElementById("map");
-                mapDiv.style.display = "block";
-                const btn = document.getElementById("btnShowMap");
+              // Crear mapa y capas una sola vez
+              if (!map) {
+                map = L.map("map");
+                tileLayerNormal = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                  maxZoom: 19,
+                  attribution: "© OpenStreetMap"
+                }).addTo(map);
             
-                // Crear mapa si no existe
-                if (!map) {
-                    map = L.map("map");
-                    tileLayerNormal = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                        maxZoom: 19,
-                        attribution: "© OpenStreetMap"
-                    }).addTo(map);
+                tileLayerSat = L.tileLayer(
+                  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                  { maxZoom: 19, attribution: "© Esri, Maxar, Earthstar Geographics" }
+                );
             
-                    tileLayerSat = L.tileLayer(
-                        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-                        {
-                            maxZoom: 19,
-                            attribution: "© Esri, Maxar, Earthstar Geographics"
-                        }
-                    );
+                layerLine = L.geoJSON(null, { style: { color: "#0ea5e9", weight: 3 } }).addTo(map);
+                layerPostesFiltered = L.layerGroup().addTo(map);
+                map.setView([-9.4, -77.57], 12);
+              }
             
-                    layerLine = L.geoJSON(null, { style: { color: "#0ea5e9", weight: 3 } }).addTo(map);
-                    layerPostesFiltered = L.layerGroup().addTo(map);
-                    map.setView([-9.4, -77.57], 12);
-                }
+              // Cambiar a modo solicitado
+              const btn = document.getElementById("btnShowMap");
+              if (preferred === "satellite" && mapMode !== "satellite") {
+                if (map.hasLayer(tileLayerNormal)) map.removeLayer(tileLayerNormal);
+                tileLayerSat.addTo(map);
+                mapMode = "satellite";
+                if (btn) btn.textContent = "Ver mapa (OSM)";
+              } else if (preferred === "normal" && mapMode !== "normal") {
+                if (map.hasLayer(tileLayerSat)) map.removeLayer(tileLayerSat);
+                tileLayerNormal.addTo(map);
+                mapMode = "normal";
+                if (btn) btn.textContent = "Ver satélite";
+              }
             
-                // Alternar modo
-                if (mapMode === "normal") {
-                    map.removeLayer(tileLayerNormal);
-                    tileLayerSat.addTo(map);
-                    mapMode = "satellite";
-                    btn.textContent = "Ver mapa (OSM)";
-                } else {
-                    map.removeLayer(tileLayerSat);
-                    tileLayerNormal.addTo(map);
-                    mapMode = "normal";
-                    btn.textContent = "Ver satélite";
-                }
+              // Redibujar contenidos
+              layerLine.clearLayers();
+              layerPostesFiltered.clearLayers();
             
-                // Redibujar elementos
-                layerLine.clearLayers();
-                layerPostesFiltered.clearLayers();
+              if (line) layerLine.addData(line);
+              if (filtered.length) redrawAllPostsColoring();
             
-                if (line) {
-                    layerLine.addData(line);
-                    map.fitBounds(layerLine.getBounds(), { padding: [20, 20] });
-                }
-                if (filtered.length) {
-                    redrawAllPostsColoring();
-                    const group = L.featureGroup([layerLine, layerPostesFiltered]);
-                    map.fitBounds(group.getBounds(), { padding: [20, 20] });
-                }
-            };
+              // Ajustar vista
+              const group = L.featureGroup([]);
+              if (layerLine) group.addLayer(layerLine);
+              if (layerPostesFiltered) group.addLayer(layerPostesFiltered);
+              try { map.fitBounds(group.getBounds(), { padding: [20, 20] }); } catch (_) {}
+            }
+
 
 
             // Estado inicial
@@ -1202,14 +1206,23 @@
                 }
             }
             
+            function setDeleteButtonsState() {
+              const hasData = Array.isArray(filtered) && filtered.length > 0;
+              if (btnDelOne)   btnDelOne.disabled   = !hasData;
+              if (btnDelRange) btnDelRange.disabled = !hasData;
+            }
+            
             function maybeShowDeleteCard() {
-              if (hasExtracted && filtered?.length) {
+              // ✅ Mismo criterio de aparición que el card de diseño:
+              if (hasExtracted && hasShownMap) {
                 deleteCard.style.display = "block";
-                refreshDeleteSelectors();
+                refreshDeleteSelectors();  // llena selects si hay data; los deja vacíos si no
+                setDeleteButtonsState();   // deshabilita botones si aún no hay postes
               } else {
                 deleteCard.style.display = "none";
               }
             }
+
 
             // Escucha adicional a botones existentes (NO se modifican los originales)
             document.getElementById("btnExtract").addEventListener("click", () => {
@@ -1221,13 +1234,17 @@
                 maybeShowDesignCard();
             });
 
-            document.getElementById("btnShowMap").addEventListener("click", () => {
-                hasShownMap = true;
-                ensureDesignLayer();
-                // Redibujar previa (si la hubiera)
-                redrawDesignLayer();
-                maybeShowDesignCard();
-            });
+            document.getElementById("btnShowMap").onclick = () => {
+              // toggle simple entre normal/satélite
+              const next = (mapMode === "normal") ? "satellite" : "normal";
+              showMap(next);
+              hasShownMap = true;
+              ensureDesignLayer();
+              redrawDesignLayer();
+              maybeShowDesignCard();
+              maybeShowDeleteCard();
+            };
+
 
             // Construye opciones de selects con los postes extraídos (ordenados por 'location')
             function refreshDesignSelectors() {
