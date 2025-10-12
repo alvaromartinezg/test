@@ -1,84 +1,231 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KMZ Processor</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; max-width: 720px; margin: 40px auto; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; }
-    button { padding: 10px 16px; border-radius: 8px; border: 0; cursor: pointer; }
-    .primary { background:#0b57d0; color:white; }
-    .muted { color:#666; font-size:14px; }
-    #status { margin-top: 8px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KMZ Processor — Troubleshooter</title>
+<style>
+  :root { --bg:#0b57d0; --muted:#666; }
+  body{font-family:system-ui,Arial,sans-serif;max-width:960px;margin:32px auto;padding:0 16px}
+  h1{margin:0 0 8px}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0}
+  input[type="text"]{width:520px;max-width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px}
+  input[type="file"]{max-width:100%}
+  button{padding:10px 14px;border:0;border-radius:8px;cursor:pointer}
+  .primary{background:var(--bg);color:#fff}
+  .ghost{background:#f2f5ff}
+  .danger{background:#e53935;color:#fff}
+  .ok{color:#2e7d32}
+  .warn{color:#ef6c00}
+  .muted{color:var(--muted);font-size:13px}
+  .card{border:1px solid #e5e5e5;border-radius:12px;padding:16px;margin:16px 0}
+  pre{background:#fafafa;border:1px solid #eee;border-radius:10px;padding:12px;overflow:auto}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:800px){.grid{grid-template-columns:1fr}}
+</style>
 </head>
 <body>
-  <h1>KMZ Processor</h1>
-  <div class="card">
-    <p>Sube tu <b>TEST.kmz</b> (o <b>TEST.kml</b>) y recibirás <b>Exportado.kmz</b>.</p>
-    <input id="file" type="file" accept=".kmz,.kml" />
-    <br><br>
-    <button id="btn" class="primary">Procesar</button>
-    <div id="status" class="muted"></div>
+  <h1>KMZ Processor — Troubleshooter</h1>
+  <div class="row">
+    <label for="backend"><b>Backend URL</b></label>
+    <input id="backend" type="text"
+      value="https://kmz-processor-411960240345.us-central1.run.app" />
+    <button class="ghost" id="btnPing">Ping /health</button>
+    <button class="ghost" id="btnPreflight">Probar OPTIONS (CORS)</button>
   </div>
 
-  <script>
-    const RUN_URL = "https://kmz-processor-411960240345.us-central1.run.app"; // tu backend
-    const $file = document.getElementById("file");
-    const $btn  = document.getElementById("btn");
-    const $status = document.getElementById("status");
+  <div class="card">
+    <div class="row">
+      <input id="file" type="file" accept=".kmz,.kml" />
+      <button class="primary" id="btnProcess">POST /process</button>
+      <button id="btnGenKml" title="Generar KML simple para pruebas">Generar KML de prueba</button>
+      <span id="status" class="muted"></span>
+    </div>
+    <div class="grid">
+      <div>
+        <h3>Resultado</h3>
+        <p class="muted">Cabeceras de respuesta</p>
+        <pre id="headers">(sin datos)</pre>
+        <p class="muted">Resumen</p>
+        <pre id="summary">(sin datos)</pre>
+        <div class="row">
+          <button id="btnDownload" class="ghost" disabled>Descargar última respuesta</button>
+          <button id="btnClear" class="ghost">Limpiar</button>
+        </div>
+      </div>
+      <div>
+        <h3>Errores / Cuerpo</h3>
+        <p class="muted">Si el servidor devuelve 4xx/5xx, aquí verás el texto</p>
+        <pre id="body">(sin datos)</pre>
+      </div>
+    </div>
+  </div>
 
-    function setStatus(msg) { $status.textContent = msg; }
+  <div class="card">
+    <h3>Consejos rápidos</h3>
+    <ul>
+      <li>Si <code>/health</code> no responde <span class="ok">ok</span>, el contenedor no arrancó (mira los logs de Cloud Run).</li>
+      <li>Si <code>OPTIONS</code> falla en CORS, revisa <code>allow_origins</code> en tu backend.</li>
+      <li>Si <code>POST /process</code> responde 500, aquí verás el <b>log del script</b> (lo envía el backend en detalle).</li>
+      <li>Para descartar problemas del archivo, usa <b>“Generar KML de prueba”</b> y procesa ese KML mínimo.</li>
+    </ul>
+  </div>
 
-    $btn.onclick = async () => {
-      try {
-        const f = $file.files[0];
-        if (!f) { alert("Selecciona un archivo .kmz o .kml"); return; }
-        if (!/\.(kmz|kml)$/i.test(f.name)) { alert("Archivo inválido"); return; }
+<script>
+const $backend = document.getElementById('backend');
+const $file = document.getElementById('file');
+const $status = document.getElementById('status');
+const $headers = document.getElementById('headers');
+const $summary = document.getElementById('summary');
+const $body = document.getElementById('body');
+const $btnPing = document.getElementById('btnPing');
+const $btnPreflight = document.getElementById('btnPreflight');
+const $btnProcess = document.getElementById('btnProcess');
+const $btnDownload = document.getElementById('btnDownload');
+const $btnClear = document.getElementById('btnClear');
+const $btnGenKml = document.getElementById('btnGenKml');
 
-        setStatus("Subiendo y procesando…");
-        $btn.disabled = true;
+let lastBlob = null;
+let lastFilename = "Exportado.kmz";
 
-        const fd = new FormData();
-        fd.append("test_kmz", f, f.name);
+function setStatus(msg, cls="") {
+  $status.className = "muted " + cls;
+  $status.textContent = msg;
+}
+function setHeaders(h) { $headers.textContent = h; }
+function setSummary(s) { $summary.textContent = s; }
+function setBody(b) { $body.textContent = b; }
 
-        const res = await fetch(`${RUN_URL}/process`, {
-          method: "POST",
-          body: fd
-        });
+function fmtHeaders(res) {
+  let out = [];
+  res.headers.forEach((v,k)=> out.push(`${k}: ${v}`));
+  return out.join('\n') || '(sin datos)';
+}
 
-        if (!res.ok) {
-          const txt = await res.text().catch(()=> "");
-          throw new Error(`Error ${res.status}: ${txt || res.statusText}`);
-        }
+function now(){ return performance.now(); }
 
-        // Obtener nombre de archivo desde Content-Disposition (si viene)
-        const cd = res.headers.get("Content-Disposition") || "";
-        const match = cd.match(/filename="?([^"]+)"?/i);
-        const filename = match ? match[1] : "Exportado.kmz";
+$btnClear.onclick = () => {
+  setStatus('');
+  setHeaders('(sin datos)');
+  setSummary('(sin datos)');
+  setBody('(sin datos)');
+  lastBlob = null;
+  $btnDownload.disabled = true;
+};
 
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
+$btnPing.onclick = async () => {
+  const url = `${$backend.value.replace(/\/+$/,'')}/health`;
+  setStatus(`GET ${url} …`);
+  const t0 = now();
+  try {
+    const res = await fetch(url, { method:'GET' });
+    const txt = await res.text();
+    const dt = (now()-t0).toFixed(1);
+    setHeaders(fmtHeaders(res));
+    setSummary(`status=${res.status} (${res.statusText}) · ${dt}ms`);
+    setBody(txt);
+    setStatus(res.ok ? 'Health OK ✅' : 'Health con errores ⚠️', res.ok ? 'ok' : 'warn');
+  } catch (e) {
+    setStatus('Fallo en /health', 'danger');
+    setBody(String(e));
+  }
+};
 
-        // Disparar descarga
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-
-        setStatus("Listo ✅ Archivo descargado.");
-      } catch (err) {
-        console.error(err);
-        setStatus("Falló: " + (err?.message || err));
-        alert("Ocurrió un error.\n" + (err?.message || err));
-      } finally {
-        $btn.disabled = false;
+$btnPreflight.onclick = async () => {
+  const url = `${$backend.value.replace(/\/+$/,'')}/process`;
+  setStatus(`OPTIONS ${url} …`);
+  const t0 = now();
+  try {
+    const res = await fetch(url, {
+      method:'OPTIONS',
+      headers: {
+        'Origin': location.origin,
+        'Access-Control-Request-Method': 'POST'
       }
-    };
-  </script>
+    });
+    const dt = (now()-t0).toFixed(1);
+    setHeaders(fmtHeaders(res));
+    setSummary(`status=${res.status} (${res.statusText}) · ${dt}ms`);
+    setBody('(Cuerpo vacío)');
+    setStatus('Preflight ejecutado ✅', 'ok');
+  } catch (e) {
+    setStatus('Fallo en OPTIONS', 'danger');
+    setBody(String(e));
+  }
+};
+
+$btnGenKml.onclick = () => {
+  // KML mínimo (un polígono simple) — válido para tu backend
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<Placemark><name>poly test</name><Polygon><outerBoundaryIs><LinearRing>
+<coordinates>-77.05,-12.06,0 -77.04,-12.06,0 -77.04,-12.05,0 -77.05,-12.05,0 -77.05,-12.06,0</coordinates>
+</LinearRing></outerBoundaryIs></Polygon></Placemark>
+</Document></kml>`;
+  const blob = new Blob([kml], {type:"application/vnd.google-earth.kml+xml"});
+  const file = new File([blob], "TEST.kml", {type: blob.type, lastModified: Date.now()});
+  // “inyectar” el archivo generado en el input:
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  $file.files = dt.files;
+  setStatus('KML de prueba generado y cargado en el input ✅', 'ok');
+};
+
+$btnProcess.onclick = async () => {
+  const url = `${$backend.value.replace(/\/+$/,'')}/process`;
+  const f = $file.files[0];
+  if (!f) { alert('Selecciona un .kmz o usa “Generar KML de prueba”'); return; }
+  if (!/\.(kmz|kml)$/i.test(f.name)) { alert('Archivo inválido'); return; }
+
+  setStatus(`POST ${url} …`);
+  setHeaders('(procesando…)'); setSummary('(procesando…)'); setBody('(procesando…)');
+
+  const fd = new FormData();
+  fd.append('test_kmz', f, f.name);
+
+  const t0 = now();
+  try {
+    const res = await fetch(url, { method:'POST', body: fd });
+    const dt = (now()-t0).toFixed(1);
+    setHeaders(fmtHeaders(res));
+    setSummary(`status=${res.status} (${res.statusText}) · ${dt}ms`);
+
+    if (!res.ok) {
+      // Mostrar texto de error (que incluye log del script)
+      const txt = await res.text().catch(()=>'(no body)');
+      setBody(txt || '(sin datos)');
+      setStatus('Proceso con error ⚠️ — revisa el log arriba', 'warn');
+      $btnDownload.disabled = true;
+      lastBlob = null;
+      return;
+    }
+
+    // OK → preparar descarga
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/i);
+    lastFilename = m ? m[1] : 'Exportado.kmz';
+    lastBlob = await res.blob();
+
+    setBody(`Salida OK. Tamaño: ${(lastBlob.size/1024).toFixed(1)} KB`);
+    $btnDownload.disabled = false;
+    setStatus('Listo ✅ Puedes descargar el resultado.', 'ok');
+  } catch (e) {
+    setStatus('Error de red/Fetch', 'danger');
+    setBody(String(e));
+    $btnDownload.disabled = true;
+    lastBlob = null;
+  }
+};
+
+$btnDownload.onclick = () => {
+  if (!lastBlob) return;
+  const url = URL.createObjectURL(lastBlob);
+  const a = document.createElement('a');
+  a.href = url; a.download = lastFilename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+};
+</script>
 </body>
 </html>
