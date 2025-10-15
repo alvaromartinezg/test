@@ -10,7 +10,6 @@ const procBar= document.getElementById("procBar");
 const downBar= document.getElementById("downBar");
 const upPct  = document.getElementById("upPct");
 const downPct= document.getElementById("downPct");
-
 const overlay = document.getElementById("loadingOverlay");
 const overlayText = document.getElementById("overlayText");
 
