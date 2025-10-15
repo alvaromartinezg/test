@@ -74,7 +74,7 @@ function parseCoordsFromEl(coordsEl) {
   return null;
 }
 
-// Util: devuelve todos los descendientes cuyo localName coincide (sin importar el prefijo kml:, ogr:, etc.)
+// Ignora namespaces: busca por nombre local del tag (Placemark, SimpleData, etc.)
 function findAllByLocalName(root, tag) {
   const out = [];
   const all = root.getElementsByTagName("*");
@@ -91,7 +91,7 @@ function findFirstByLocalName(root, tag) {
   return null;
 }
 
-// ======= (1) Reemplaza readAttrsFromPlacemark por esta versión =======
+// ======= Solo UBIGEO desde el Placemark =======
 function readAttrsFromPlacemark(pm) {
   const attrs = {};
   const normKey = (k) => (k || "").split(":").pop().trim().toUpperCase();
@@ -103,36 +103,49 @@ function readAttrsFromPlacemark(pm) {
     if (k) attrs[k] = v;
   }
 
-  // ExtendedData/SchemaData/SimpleData
+  // ExtendedData/SchemaData/SimpleData (típico de shapefile → KML)
   for (const sd of findAllByLocalName(pm, "SimpleData")) {
     const k = normKey(sd.getAttribute("name"));
     const v = (sd.textContent ?? "").trim();
     if (k) attrs[k] = v;
   }
 
-  // Fallback: cualquier SimpleData en el Placemark (por si falta SchemaData)
-  // (ya cubierto arriba)
-
-  // description (HTML → texto)
+  // <description> como respaldo
   const desc = textStripHtml(findFirstByLocalName(pm, "description")?.textContent || "");
-  const rx = /(DISTRITO|PROVINCIA|DEPARTAMEN|DEPARTAMENTO|DPTO|DEPTO|CAPITAL)\s*[:=]\s*([^\n\r]+)/gi;
-  for (let m; (m = rx.exec(desc)); ) attrs[normKey(m[1])] = m[2].trim();
 
-  // Normaliza alias/truncados DBF
-  const up   = (k) => (attrs[k] || "").trim();
-  const pick = (...keys) => { for (const k of keys) { const v = up(k); if (v) return v; } return null; };
+  // ---- Resolver UBIGEO (prioridades) ----
+  const get6 = (v) => (v || "").match(/\d{6}/)?.[0] || null;
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = attrs[k];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+    return null;
+  };
 
-  const departamento = pick("DEPARTAMENTO", "DEPARTAMEN", "DPTO", "DEPTO");
-  const provincia    = pick("PROVINCIA", "NOMBREPROV", "PROV");
-  const distrito     = pick("DISTRITO", "NOMBDIST", "NOMBREDIST", "DIST");
-  const capital      = pick("CAPITAL");
+  // nombres comunes en datasets de Perú
+  let ubigeo =
+    get6(pick("UBIGEO", "UBI_GEO", "CODUBIGEO", "UBIGEO_6", "CODIGO_UBIGEO")) ||
+    get6(pick("IDDIST", "ID_DIST", "ID_DISTRITO")) || // muchos shapefiles lo traen así (ej: 060801)
+    null;
 
-  console.debug("KML attrs detectados:", attrs); // ← mira la consola para ver qué claves vienen
+  // si aún no, intenta componer desde IDDPTO/IDPROV/IDDIST (cuando IDDIST = 3 dígitos)
+  if (!ubigeo) {
+    const iddpto = (attrs["IDDPTO"] || attrs["CCDD"] || "").toString().padStart(2, "0");
+    const idprov = (attrs["IDPROV"] || attrs["CCPP"] || "").toString().slice(-2).padStart(2, "0");
+    const iddist = (attrs["IDDIST"] || attrs["CCDI"] || "").toString().slice(-2).padStart(2, "0");
+    const candidate = `${iddpto}${idprov}${iddist}`;
+    if (/^\d{6}$/.test(candidate)) ubigeo = candidate;
+  }
 
-  return { distrito, provincia, departamento, capital, _raw: attrs, description: desc };
+  // último recurso: buscar el primer 6 dígitos en description
+  if (!ubigeo) ubigeo = (desc.match(/\b\d{6}\b/) || [null])[0];
+
+  console.debug("Atributos detectados:", attrs, "UBIGEO:", ubigeo);
+  return { ubigeo, _raw: attrs, description: desc };
 }
 
-// ======= (2) Reemplaza extractFirstPointAndAdmin por esta versión =======
+// ======= Extrae primer punto + UBIGEO del primer Placemark con geometría =======
 async function extractFirstPointAndAdmin(file) {
   // KML desde KMZ o KML
   let kmlText;
@@ -173,32 +186,29 @@ async function extractFirstPointAndAdmin(file) {
   return { ...firstPt, ...attrs, _placemarkName: pmName };
 }
 
-
 // ======= PROCESAR (POST /process) =======
 $btn.onclick = async () => {
   const f = $file.files[0];
   if (!f) { alert("Selecciona un archivo .kmz o .kml"); return; }
   if (!/\.(kmz|kml)$/i.test(f.name)) { alert("Archivo inválido"); return; }
 
-  // 1) Leer localmente el primer punto y metadatos admin antes de enviar al backend
+  // 1) Leer localmente el primer punto y UBIGEO antes de enviar al backend
   try {
-    const info = await extractFirstPointAndAdmin(f); // usa las funciones que ya agregaste arriba
-    // guardamos temporalmente para usar luego si quieres
-    window.__firstGeoInfo = info;
+    const info = await extractFirstPointAndAdmin(f);
+    // guardar temporalmente
+    window.__ubigeo = info?.ubigeo || null;
 
-    // popup temporal para validar
+    // popup SOLO UBIGEO (y coords por depuración rápida)
     alert(
       [
         "✓ Lectura local OK",
-        `Lon,Lat: ${info?.lon ?? "?"}, ${info?.lat ?? "?"}`,
-        `Distrito: ${info?.distrito ?? "(no encontrado)"}`,
-        `Provincia: ${info?.provincia ?? "(no encontrado)"}`,
-        `Departamento: ${info?.departamento ?? "(no encontrado)"}`
+        `UBIGEO: ${info?.ubigeo ?? "(no encontrado)"}`,
+        `Lon,Lat: ${info?.lon ?? "?"}, ${info?.lat ?? "?"}`
       ].join("\n")
     );
   } catch (e) {
-    console.warn("No se pudo extraer metadatos locales:", e);
-    alert("No se pudo leer distrito/provincia/departamento del archivo.\nContinuaré con el proceso normal.");
+    console.warn("No se pudo extraer UBIGEO local:", e);
+    alert("No se pudo leer UBIGEO del archivo.\nContinuaré con el proceso normal.");
   }
 
   // 2) Preparar UI para el envío al backend
@@ -292,7 +302,6 @@ $btn.onclick = async () => {
 
   xhr.send(fd);
 };
-
 
 // ======= CONVERTIR (POST /convert) =======
 $btnConvert.onclick = async () => {
