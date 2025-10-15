@@ -418,27 +418,24 @@ $btn.onclick = async () => {
   }
 
   // 4) Mostrar ventana emergente con datos
-  if (match) {
-    window.__ubigeoInfo = match;
-    alert(
-      [
-        "✓ Lectura local OK",
-        `UBIGEO: ${match.ubigeo}`,
-        `DEPARTAMENTO: ${match.departamento || "(no encontrado)"}`,
-        `PROVINCIA: ${match.provincia || "(no encontrado)"}`,
-        `DISTRITO: ${match.distrito || "(no encontrado)"}`
-      ].join("\n")
-    );
-  } else {
-    window.__ubigeoInfo = { ubigeo: ubigeo || null };
-    alert(
-      [
-        "✓ Lectura local OK",
-        `UBIGEO: ${ubigeo ?? "(no encontrado)"}`,
-        "No se encontró coincidencia en UBIGEO.xlsx"
-      ].join("\n")
-    );
-  }
+  // Después de calcular 'match' desde UBIGEO.xlsx:
+if (match) {
+  // guarda para uso posterior (sin mostrar)
+  window.__geoAdmin = {
+    ubigeo: match.ubigeo,
+    departamento: match.departamento || "",
+    provincia: match.provincia || "",
+    distrito: match.distrito || ""
+  };
+} else {
+  // si no hay match igual guarda ubigeo y deja strings vacíos
+  window.__geoAdmin = {
+    ubigeo: (ubigeo || "").toString().padStart(6, "0"),
+    departamento: "",
+    provincia: "",
+    distrito: ""
+  };
+}
 
   // 5) Continúa con tu flujo normal (subir al backend)
   $btn.disabled = true; 
@@ -557,6 +554,12 @@ $btnConvert.onclick = async () => {
     const fd = new FormData();
     fd.append("file", blobToSend, nameToSend);
     fd.append("output", out);
+    const meta = window.__geoAdmin || {};
+  fd.append("ubigeo", meta.ubigeo || "");
+  fd.append("departamento", meta.departamento || "");
+  fd.append("provincia", meta.provincia || "");
+  fd.append("distrito", meta.distrito || "");
+
 
     const resp = await fetch(CONVERT_URL, { method:"POST", body: fd });
     if (!resp.ok){
