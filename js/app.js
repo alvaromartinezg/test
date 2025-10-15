@@ -57,17 +57,128 @@ $cancel.onclick = () => {
   }
 };
 
+// ---------- Utilidades de parsing ----------
+function textStripHtml(html) {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  return div.textContent || div.innerText || "";
+}
+
+function parseCoordsFromEl(coordsEl) {
+  // <coordinates>lon,lat[,alt] lon,lat ...</coordinates>
+  const raw = (coordsEl?.textContent || "").trim();
+  const tokens = raw.split(/[\s\n\r\t]+/).filter(Boolean);
+  if (!tokens.length) return null;
+  const [lonStr, latStr] = tokens[0].split(","); // primer par
+  const lon = Number(lonStr), lat = Number(latStr);
+  if (Number.isFinite(lon) && Number.isFinite(lat)) return { lon, lat };
+  return null;
+}
+
+function readAttrsFromPlacemark(pm) {
+  const attrs = {};
+  // 1) <ExtendedData><Data name="..."><value>...</value></Data>
+  pm.querySelectorAll("ExtendedData Data").forEach(d => {
+    const k = d.getAttribute("name") || "";
+    const v = d.querySelector("value")?.textContent ?? "";
+    if (k) attrs[k.toUpperCase()] = v;
+  });
+  // 2) <ExtendedData><SchemaData><SimpleData name="...">...</SimpleData>
+  pm.querySelectorAll("ExtendedData SchemaData SimpleData").forEach(s => {
+    const k = s.getAttribute("name") || "";
+    const v = s.textContent ?? "";
+    if (k) attrs[k.toUpperCase()] = v;
+  });
+  // 3) <description> con tabla/HTML
+  const desc = textStripHtml(pm.querySelector("description")?.textContent || "");
+  // Busca claves típicas
+  const rx = /(DISTRITO|PROVINCIA|DEPARTAMENTO)\s*[:=]\s*([^\n\r]+)/gi;
+  let m;
+  while ((m = rx.exec(desc))) {
+    attrs[m[1].toUpperCase()] = m[2].trim();
+  }
+  // Normaliza alias comunes
+  if (attrs["DIST"]) attrs["DISTRITO"] = attrs["DIST"];
+  if (attrs["DPTO"]) attrs["DEPARTAMENTO"] = attrs["DPTO"];
+  if (attrs["DEPTO"]) attrs["DEPARTAMENTO"] = attrs["DEPTO"];
+  if (attrs["PROV"]) attrs["PROVINCIA"] = attrs["PROV"];
+
+  return {
+    distrito: attrs["DISTRITO"] || attrs["NOMBREDIST"] || attrs["NOMBDIST"] || null,
+    provincia: attrs["PROVINCIA"] || attrs["NOMBREPROV"] || attrs["PROV"] || null,
+    departamento: attrs["DEPARTAMENTO"] || attrs["DPTO"] || attrs["DEPTO"] || null,
+    _raw: attrs,
+    description: desc
+  };
+}
+
+async function extractFirstPointAndAdmin(file) {
+  // Detecta KMZ (zip) vs KML (texto)
+  let kmlText = null;
+
+  if (/\.(kmz)$/i.test(file.name)) {
+    const zip = await JSZip.loadAsync(file);
+    // Preferir doc.kml; si no, el primer .kml
+    let kmlFile = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
+    if (!kmlFile) throw new Error("KMZ sin .kml interno");
+    kmlText = await kmlFile.async("string");
+  } else {
+    // KML plano
+    kmlText = await file.text();
+  }
+
+  const xml = new DOMParser().parseFromString(kmlText, "application/xml");
+  // Buscar primera geometría (Polygon o LineString) y sus <coordinates>
+  let coordsEl =
+    xml.querySelector("Placemark Polygon coordinates") ||
+    xml.querySelector("Placemark LineString coordinates");
+
+  if (!coordsEl) throw new Error("No se encontró Polygon/LineString en el KML");
+
+  const pm = coordsEl.closest("Placemark");
+  const firstPt = parseCoordsFromEl(coordsEl);
+  const attrs = readAttrsFromPlacemark(pm);
+
+  return { ...firstPt, ...attrs, _placemarkName: pm?.querySelector("name")?.textContent || null };
+}
+
 // ======= PROCESAR (POST /process) =======
-$btn.onclick = () => {
+// ======= PROCESAR (POST /process) =======
+$btn.onclick = async () => {
   const f = $file.files[0];
-  if(!f){ alert("Selecciona un archivo .kmz o .kml"); return; }
-  if(!/\.(kmz|kml)$/i.test(f.name)){ alert("Archivo inválido"); return; }
+  if (!f) { alert("Selecciona un archivo .kmz o .kml"); return; }
+  if (!/\.(kmz|kml)$/i.test(f.name)) { alert("Archivo inválido"); return; }
 
-  // preparar UI
-  $btn.disabled = true; $cancel.disabled = true;
-  $log.style.display = "none"; $log.textContent = "";
-  resetBars(); setStatus("Preparando…");
+  // 1) Leer localmente el primer punto y metadatos admin antes de enviar al backend
+  try {
+    const info = await extractFirstPointAndAdmin(f); // usa las funciones que ya agregaste arriba
+    // guardamos temporalmente para usar luego si quieres
+    window.__firstGeoInfo = info;
 
+    // popup temporal para validar
+    alert(
+      [
+        "✓ Lectura local OK",
+        `Lon,Lat: ${info?.lon ?? "?"}, ${info?.lat ?? "?"}`,
+        `Distrito: ${info?.distrito ?? "(no encontrado)"}`,
+        `Provincia: ${info?.provincia ?? "(no encontrado)"}`,
+        `Departamento: ${info?.departamento ?? "(no encontrado)"}`
+      ].join("\n")
+    );
+  } catch (e) {
+    console.warn("No se pudo extraer metadatos locales:", e);
+    alert("No se pudo leer distrito/provincia/departamento del archivo.\nContinuaré con el proceso normal.");
+  }
+
+  // 2) Preparar UI para el envío al backend
+  $btn.disabled = true; 
+  $cancel.disabled = true;
+  $log.style.display = "none"; 
+  $log.textContent = "";
+  resetBars(); 
+  setStatus("Preparando…");
+
+  // 3) Enviar al backend
   const fd = new FormData();
   fd.append("test_kmz", f, f.name);
 
@@ -78,7 +189,8 @@ $btn.onclick = () => {
   xhr.upload.onprogress = (e) => {
     if (e.lengthComputable) {
       const pct = Math.round((e.loaded / e.total) * 100);
-      upBar.style.width = `${pct}%`; upPct.textContent = `${pct}%`;
+      upBar.style.width = `${pct}%`; 
+      upPct.textContent = `${pct}%`;
     }
   };
   xhr.onloadstart = () => {
@@ -90,20 +202,28 @@ $btn.onclick = () => {
   xhr.onprogress = (e) => {
     if (e.lengthComputable) {
       const pct = Math.round((e.loaded / e.total) * 100);
-      downBar.style.width = `${pct}%`; downPct.textContent = `${pct}%`;
+      downBar.style.width = `${pct}%`; 
+      downPct.textContent = `${pct}%`;
     }
   };
   xhr.onerror = () => {
-    hideOverlay(); procBar.style.display = "none";
+    hideOverlay(); 
+    procBar.style.display = "none";
     setError("Error de red (fetch/XHR). ¿CORS? ¿conexión?");
-    $cancel.disabled = true; $btn.disabled = false;
+    $cancel.disabled = true; 
+    $btn.disabled = false;
   };
-  xhr.onabort = () => { hideOverlay(); setStatus("Operación cancelada por el usuario."); };
+  xhr.onabort = () => { 
+    hideOverlay(); 
+    setStatus("Operación cancelada por el usuario."); 
+  };
 
   xhr.onreadystatechange = () => {
     if (xhr.readyState === 4) {
       hideOverlay();
-      $cancel.disabled = true; $btn.disabled = false; procBar.style.display = "none";
+      $cancel.disabled = true; 
+      $btn.disabled = false; 
+      procBar.style.display = "none";
 
       if (xhr.status >= 200 && xhr.status < 300) {
         // Descargar al usuario
@@ -116,15 +236,20 @@ $btn.onclick = () => {
         const blob = xhr.response;
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url; a.download = filename;
-        document.body.appendChild(a); a.click(); a.remove();
+        a.href = url; 
+        a.download = filename;
+        document.body.appendChild(a); 
+        a.click(); 
+        a.remove();
         URL.revokeObjectURL(url);
 
         setStatus("✅ Listo. Archivo descargado.");
-        downBar.style.width = "100%"; downPct.textContent = "100%";
+        downBar.style.width = "100%"; 
+        downPct.textContent = "100%";
 
         // Guardar en memoria (Blob) para la conversión
-        lastBlob = blob; lastName = filename;
+        lastBlob = blob; 
+        lastName = filename;
       } else {
         const reader = new FileReader();
         reader.onload = () => setError(`HTTP ${xhr.status} ${xhr.statusText}`, reader.result || "");
@@ -136,6 +261,7 @@ $btn.onclick = () => {
 
   xhr.send(fd);
 };
+
 
 // ======= CONVERTIR (POST /convert) =======
 $btnConvert.onclick = async () => {
