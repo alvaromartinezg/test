@@ -29,8 +29,9 @@ let xhr = null;
 let lastBlob = null;
 let lastName = null;
 
-// ======= Cache de distritos (XML ya parseado) =======
+// ======= Cache de distritos (XML) y de tabla UBIGEO (filas) =======
 let __districtsXML = null;
+let __ubigeoRows = null;
 
 function showOverlay(msg="Procesando…"){ overlayText.textContent = msg; overlay.style.display = "flex"; }
 function hideOverlay(){ overlay.style.display = "none"; }
@@ -260,14 +261,13 @@ async function loadDistrictsXML() {
   setStatus("Cargando Districts.KMZ…");
 
   const candidates = ["data/Districts.KMZ", "data/Districts.kmz"]; // respeta mayúsculas/minúsculas
-  let blob = null, usedUrl = null;
+  let blob = null;
 
   for (const url of candidates) {
     try {
       const resp = await fetch(url, { cache: "no-cache" });
       if (!resp.ok) continue;
       blob = await resp.blob();
-      usedUrl = url;
       break;
     } catch {}
   }
@@ -286,13 +286,82 @@ async function loadDistrictsXML() {
     }
     const kmlText = await kmlFile.async("string");
     __districtsXML = new DOMParser().parseFromString(kmlText, "application/xml");
-    console.debug("Districts cargado desde:", usedUrl);
     hideOverlay();
     return __districtsXML;
   } catch (e) {
     hideOverlay();
     throw e;
   }
+}
+
+// ======= XLSX (UBIGEO.xlsx) =======
+// Carga SheetJS si no está disponible
+async function ensureXLSXLoaded() {
+  if (window.XLSX) return;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("No se pudo cargar SheetJS"));
+    document.head.appendChild(s);
+  });
+}
+
+// Carga todas las filas de data/UBIGEO.xlsx como matriz (header:1)
+async function loadUbigeoRows() {
+  if (__ubigeoRows) return __ubigeoRows;
+  showOverlay("Cargando UBIGEO.xlsx…");
+  setStatus("Cargando UBIGEO.xlsx…");
+
+  await ensureXLSXLoaded();
+  const candidates = ["data/UBIGEO.xlsx", "data/ubigeo.xlsx"];
+  let ab = null;
+
+  for (const url of candidates) {
+    try {
+      const resp = await fetch(url, { cache: "no-cache" });
+      if (!resp.ok) continue;
+      ab = await resp.arrayBuffer();
+      break;
+    } catch {}
+  }
+
+  if (!ab) {
+    hideOverlay();
+    throw new Error("No se pudo cargar data/UBIGEO.xlsx");
+  }
+
+  try {
+    const wb = XLSX.read(ab, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
+    __ubigeoRows = rows;
+    hideOverlay();
+    return __ubigeoRows;
+  } catch (e) {
+    hideOverlay();
+    throw e;
+  }
+}
+
+// Busca fila por ubigeo (columna A) y devuelve objeto {ubigeo, departamento, provincia, distrito}
+function lookupUbigeo(rows, ubigeo) {
+  if (!rows || !rows.length) return null;
+  const target = String(ubigeo || "").padStart(6, "0");
+  // Si la primera fila es encabezado, funciona igual; comparamos a partir de la fila 1 también
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const code = (r[0] != null) ? String(r[0]).trim() : "";
+    if (code && code.padStart(6, "0") === target) {
+      return {
+        ubigeo: target,
+        departamento: r[1] != null ? String(r[1]).trim() : "",
+        provincia:    r[2] != null ? String(r[2]).trim() : "",
+        distrito:     r[3] != null ? String(r[3]).trim() : ""
+      };
+    }
+  }
+  return null;
 }
 
 // ======= PROCESAR (POST /process) =======
@@ -326,7 +395,7 @@ $btn.onclick = async () => {
   // 2) Cargar Districts.KMZ (si no está en cache) y buscar UBIGEO
   let ubigeo = null;
   try {
-    const districtsXML = await loadDistrictsXML(); // ← esto sí tarda con 10 MB
+    const districtsXML = await loadDistrictsXML(); // ← puede tardar con ~10 MB
     showOverlay("Comparando punto con distritos…");
     ubigeo = findUbigeoForPointInDistrictsXML(districtsXML, pointLonLat);
   } catch (e) {
@@ -338,16 +407,40 @@ $btn.onclick = async () => {
     hideOverlay();
   }
 
-  // 3) Mostrar ventana emergente con UBIGEO
-  window.__ubigeo = ubigeo || null;
-  alert(
-    [
-      "✓ Lectura local OK",
-      `UBIGEO: ${ubigeo ?? "(no encontrado)"}`
-    ].join("\n")
-  );
+  // 3) Cargar UBIGEO.xlsx y buscar fila
+  let match = null;
+  try {
+    const rows = await loadUbigeoRows();
+    match = lookupUbigeo(rows, ubigeo);
+  } catch (e) {
+    console.error(e);
+    alert("No se pudo cargar o procesar data/UBIGEO.xlsx.");
+  }
 
-  // 4) Continúa con tu flujo normal (subir al backend)
+  // 4) Mostrar ventana emergente con datos
+  if (match) {
+    window.__ubigeoInfo = match;
+    alert(
+      [
+        "✓ Lectura local OK",
+        `UBIGEO: ${match.ubigeo}`,
+        `DEPARTAMENTO: ${match.departamento || "(no encontrado)"}`,
+        `PROVINCIA: ${match.provincia || "(no encontrado)"}`,
+        `DISTRITO: ${match.distrito || "(no encontrado)"}`
+      ].join("\n")
+    );
+  } else {
+    window.__ubigeoInfo = { ubigeo: ubigeo || null };
+    alert(
+      [
+        "✓ Lectura local OK",
+        `UBIGEO: ${ubigeo ?? "(no encontrado)"}`,
+        "No se encontró coincidencia en UBIGEO.xlsx"
+      ].join("\n")
+    );
+  }
+
+  // 5) Continúa con tu flujo normal (subir al backend)
   $btn.disabled = true; 
   $cancel.disabled = true;
   $log.style.display = "none"; 
