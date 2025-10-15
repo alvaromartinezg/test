@@ -77,36 +77,47 @@ function parseCoordsFromEl(coordsEl) {
 
 function readAttrsFromPlacemark(pm) {
   const attrs = {};
-  // 1) <ExtendedData><Data name="..."><value>...</value></Data>
+
+  // 1) ExtendedData -> Data/value
   pm.querySelectorAll("ExtendedData Data").forEach(d => {
-    const k = d.getAttribute("name") || "";
-    const v = d.querySelector("value")?.textContent ?? "";
-    if (k) attrs[k.toUpperCase()] = v;
+    const k = (d.getAttribute("name") || "").trim().toUpperCase();
+    const v = (d.querySelector("value")?.textContent ?? "").trim();
+    if (k) attrs[k] = v;
   });
-  // 2) <ExtendedData><SchemaData><SimpleData name="...">...</SimpleData>
+
+  // 2) ExtendedData -> SchemaData -> SimpleData
   pm.querySelectorAll("ExtendedData SchemaData SimpleData").forEach(s => {
-    const k = s.getAttribute("name") || "";
-    const v = s.textContent ?? "";
-    if (k) attrs[k.toUpperCase()] = v;
+    const k = (s.getAttribute("name") || "").trim().toUpperCase();
+    const v = (s.textContent ?? "").trim();
+    if (k) attrs[k] = v;
   });
-  // 3) <description> con tabla/HTML
+
+  // 3) description (HTML a texto)
   const desc = textStripHtml(pm.querySelector("description")?.textContent || "");
-  // Busca claves típicas
-  const rx = /(DISTRITO|PROVINCIA|DEPARTAMENTO)\s*[:=]\s*([^\n\r]+)/gi;
+  const rx = /(DISTRITO|PROVINCIA|DEPARTAMEN|DEPARTAMENTO|DPTO|DEPTO)\s*[:=]\s*([^\n\r]+)/gi;
   let m;
   while ((m = rx.exec(desc))) {
     attrs[m[1].toUpperCase()] = m[2].trim();
   }
-  // Normaliza alias comunes
+
+  // 🔧 Normaliza alias y truncados típicos de DBF
+  //  - DEPARTAMEN (10 chars) es lo mismo que DEPARTAMENTO
+  //  - DPTO / DEPTO alias
+  if (attrs["DEPARTAMEN"] && !attrs["DEPARTAMENTO"]) attrs["DEPARTAMENTO"] = attrs["DEPARTAMEN"];
+  if (attrs["DPTO"] && !attrs["DEPARTAMENTO"]) attrs["DEPARTAMENTO"] = attrs["DPTO"];
+  if (attrs["DEPTO"] && !attrs["DEPARTAMENTO"]) attrs["DEPARTAMENTO"] = attrs["DEPTO"];
+
+  // Algunos nombres alternos que he visto
   if (attrs["DIST"]) attrs["DISTRITO"] = attrs["DIST"];
-  if (attrs["DPTO"]) attrs["DEPARTAMENTO"] = attrs["DPTO"];
-  if (attrs["DEPTO"]) attrs["DEPARTAMENTO"] = attrs["DEPTO"];
   if (attrs["PROV"]) attrs["PROVINCIA"] = attrs["PROV"];
+  if (attrs["NOMBDIST"] && !attrs["DISTRITO"]) attrs["DISTRITO"] = attrs["NOMBDIST"];
+  if (attrs["NOMBREDIST"] && !attrs["DISTRITO"]) attrs["DISTRITO"] = attrs["NOMBREDIST"];
+  if (attrs["NOMBREPROV"] && !attrs["PROVINCIA"]) attrs["PROVINCIA"] = attrs["NOMBREPROV"];
 
   return {
-    distrito: attrs["DISTRITO"] || attrs["NOMBREDIST"] || attrs["NOMBDIST"] || null,
-    provincia: attrs["PROVINCIA"] || attrs["NOMBREPROV"] || attrs["PROV"] || null,
-    departamento: attrs["DEPARTAMENTO"] || attrs["DPTO"] || attrs["DEPTO"] || null,
+    distrito: (attrs["DISTRITO"] || "").trim() || null,
+    provincia: (attrs["PROVINCIA"] || "").trim() || null,
+    departamento: (attrs["DEPARTAMENTO"] || "").trim() || null,
     _raw: attrs,
     description: desc
   };
