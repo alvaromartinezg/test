@@ -74,43 +74,52 @@ function parseCoordsFromEl(coordsEl) {
   return null;
 }
 
-// --- reemplaza COMPLETO ---
+// Util: devuelve todos los descendientes cuyo localName coincide (sin importar el prefijo kml:, ogr:, etc.)
+function findAllByLocalName(root, tag) {
+  const out = [];
+  const all = root.getElementsByTagName("*");
+  for (let i = 0; i < all.length; i++) {
+    if (all[i].localName && all[i].localName.toLowerCase() === tag.toLowerCase()) out.push(all[i]);
+  }
+  return out;
+}
+function findFirstByLocalName(root, tag) {
+  const all = root.getElementsByTagName("*");
+  for (let i = 0; i < all.length; i++) {
+    if (all[i].localName && all[i].localName.toLowerCase() === tag.toLowerCase()) return all[i];
+  }
+  return null;
+}
 
+// ======= (1) Reemplaza readAttrsFromPlacemark por esta versión =======
 function readAttrsFromPlacemark(pm) {
   const attrs = {};
-
-  // normaliza claves: quita prefijo (ogr:, kml:, gx:, etc.), trim y a MAYUS
   const normKey = (k) => (k || "").split(":").pop().trim().toUpperCase();
 
-  // --- 1) ExtendedData -> Data/value (con o sin namespace)
-  pm.querySelectorAll("ExtendedData Data, *|ExtendedData *|Data").forEach(d => {
+  // ExtendedData/Data/value
+  for (const d of findAllByLocalName(pm, "Data")) {
     const k = normKey(d.getAttribute("name"));
-    const v = (d.querySelector("value, *|value")?.textContent ?? "").trim();
+    const v = (findFirstByLocalName(d, "value")?.textContent ?? "").trim();
     if (k) attrs[k] = v;
-  });
+  }
 
-  // --- 2) ExtendedData -> SchemaData -> SimpleData (con o sin namespace)
-  pm.querySelectorAll("ExtendedData SchemaData SimpleData, *|ExtendedData *|SchemaData *|SimpleData")
-    .forEach(s => {
-      const k = normKey(s.getAttribute("name"));
-      const v = (s.textContent ?? "").trim();
-      if (k) attrs[k] = v;
-    });
+  // ExtendedData/SchemaData/SimpleData
+  for (const sd of findAllByLocalName(pm, "SimpleData")) {
+    const k = normKey(sd.getAttribute("name"));
+    const v = (sd.textContent ?? "").trim();
+    if (k) attrs[k] = v;
+  }
 
-  // --- 3) Fallback: cualquier SimpleData bajo el Placemark
-  pm.querySelectorAll("SimpleData, *|SimpleData").forEach(s => {
-    const k = normKey(s.getAttribute("name"));
-    const v = (s.textContent ?? "").trim();
-    if (k && !(k in attrs)) attrs[k] = v;
-  });
+  // Fallback: cualquier SimpleData en el Placemark (por si falta SchemaData)
+  // (ya cubierto arriba)
 
-  // --- 4) También mira <description> por si viene en HTML
-  const desc = textStripHtml(pm.querySelector("description, *|description")?.textContent || "");
+  // description (HTML → texto)
+  const desc = textStripHtml(findFirstByLocalName(pm, "description")?.textContent || "");
   const rx = /(DISTRITO|PROVINCIA|DEPARTAMEN|DEPARTAMENTO|DPTO|DEPTO|CAPITAL)\s*[:=]\s*([^\n\r]+)/gi;
   for (let m; (m = rx.exec(desc)); ) attrs[normKey(m[1])] = m[2].trim();
 
-  // alias y truncados típicos de DBF
-  const up = (k) => (attrs[k] || "").trim();
+  // Normaliza alias/truncados DBF
+  const up   = (k) => (attrs[k] || "").trim();
   const pick = (...keys) => { for (const k of keys) { const v = up(k); if (v) return v; } return null; };
 
   const departamento = pick("DEPARTAMENTO", "DEPARTAMEN", "DPTO", "DEPTO");
@@ -118,14 +127,14 @@ function readAttrsFromPlacemark(pm) {
   const distrito     = pick("DISTRITO", "NOMBDIST", "NOMBREDIST", "DIST");
   const capital      = pick("CAPITAL");
 
-  // depuración
-  console.debug("KML attrs detectados:", attrs);
+  console.debug("KML attrs detectados:", attrs); // ← mira la consola para ver qué claves vienen
 
   return { distrito, provincia, departamento, capital, _raw: attrs, description: desc };
 }
 
+// ======= (2) Reemplaza extractFirstPointAndAdmin por esta versión =======
 async function extractFirstPointAndAdmin(file) {
-  // Lee KML desde KMZ o KML
+  // KML desde KMZ o KML
   let kmlText;
   if (/\.(kmz)$/i.test(file.name)) {
     const zip = await JSZip.loadAsync(file);
@@ -138,16 +147,19 @@ async function extractFirstPointAndAdmin(file) {
 
   const xml = new DOMParser().parseFromString(kmlText, "application/xml");
 
-  // Toma el PRIMER Placemark con geometría (Polygon, LineString o LinearRing), con o sin namespaces
-  const placemarks = Array.from(xml.querySelectorAll("Placemark, *|Placemark"));
-  let targetPm = null;
-  let coordsEl = null;
+  // Busca el PRIMER Placemark que tenga geometría (Polygon, LineString o LinearRing)
+  const placemarks = findAllByLocalName(xml, "Placemark");
+  let targetPm = null, coordsEl = null;
 
   for (const pm of placemarks) {
-    coordsEl =
-      pm.querySelector("Polygon coordinates, *|Polygon *|coordinates") ||
-      pm.querySelector("LineString coordinates, *|LineString *|coordinates") ||
-      pm.querySelector("LinearRing coordinates, *|LinearRing *|coordinates");
+    // preferencia: Polygon → LineString → LinearRing
+    const poly = findFirstByLocalName(pm, "Polygon");
+    const line = findFirstByLocalName(pm, "LineString");
+    const ring = findFirstByLocalName(pm, "LinearRing");
+    const geom = poly || line || ring;
+    if (!geom) continue;
+
+    coordsEl = findFirstByLocalName(geom, "coordinates") || findFirstByLocalName(pm, "coordinates");
     if (coordsEl) { targetPm = pm; break; }
   }
 
@@ -155,13 +167,12 @@ async function extractFirstPointAndAdmin(file) {
 
   const firstPt = parseCoordsFromEl(coordsEl);
   const attrs   = readAttrsFromPlacemark(targetPm);
-  const pmName  = targetPm.querySelector("name, *|name")?.textContent || null;
+  const pmName  = findFirstByLocalName(targetPm, "name")?.textContent || null;
 
-  // depuración útil: ver el Placemark que estamos leyendo
-  console.debug("Placemark usado:", pmName, targetPm.outerHTML.slice(0, 2000));
-
+  console.debug("Placemark usado:", pmName, targetPm.outerHTML.slice(0, 1500));
   return { ...firstPt, ...attrs, _placemarkName: pmName };
 }
+
 
 // ======= PROCESAR (POST /process) =======
 $btn.onclick = async () => {
