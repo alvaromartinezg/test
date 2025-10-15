@@ -23,8 +23,8 @@
 
     <header class="hero">
       <img src="img/bitel_logo.png" class="logo" alt="bitel">
-      <h1>KMZ extractor for Informative Letters</h1>
-      <p>Sube un <b>KMZ/KML</b>, se procesa en backend, se descarga y queda en memoria para convertir a PDF/DWG.</p>
+      <h1>KMZ extractor + CAD drawer</h1>
+      <p>Sube un <b>KMZ/KML</b>.</p>
     </header>
 
     <!-- Barra principal -->
@@ -61,9 +61,9 @@
 
     <!-- Sección de conversión (abajo) -->
     <div class="card">
-      <h3 style="margin:6px 0 12px;">Conversión a PDF / DWG</h3>
+      <h3 style="margin:6px 0 12px;">Conversión a PDF / DXF</h3>
       <div class="row">
-        <label class="pill">KMZ para convertir (opcional):
+        <label class="pill">Subir KMZ/KML(opcional):
           <input id="convFile" type="file" accept=".kmz,.kml" />
         </label>
 
@@ -75,10 +75,10 @@
           </select>
         </label>
 
-        <button id="btnConvert" class="btn">Convertir a PDF/DWG</button>
+        <button id="btnConvert" class="btn">Convertir a PDF/DXF</button>
       </div>
       <div class="hint" id="convHint" style="margin-top:8px;">
-        Si no eliges un KMZ aquí, se usará el <b>último resultado</b> guardado en memoria.
+        Por defecto utiliza el KMZ exportado del paso anterior, caso contrario cargar un KMZ/KML.
       </div>
     </div>
   </div>
