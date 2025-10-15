@@ -75,85 +75,101 @@ function parseCoordsFromEl(coordsEl) {
   return null;
 }
 
+// --- reemplaza COMPLETO ---
+
 function readAttrsFromPlacemark(pm) {
   const attrs = {};
 
+  // helper para normalizar nombres de campo: quita prefijos (ogr:, gx:, etc.), trim y upper
+  const normKey = (k) => (k || "").split(":").pop().trim().toUpperCase();
+
   // 1) ExtendedData -> Data/value
   pm.querySelectorAll("ExtendedData Data").forEach(d => {
-    const k = (d.getAttribute("name") || "").trim().toUpperCase();
+    const k = normKey(d.getAttribute("name"));
     const v = (d.querySelector("value")?.textContent ?? "").trim();
     if (k) attrs[k] = v;
   });
 
-  // 2) ExtendedData -> SchemaData -> SimpleData
+  // 2) ExtendedData -> SchemaData -> SimpleData  (con o sin prefijos en 'name')
   pm.querySelectorAll("ExtendedData SchemaData SimpleData").forEach(s => {
-    const k = (s.getAttribute("name") || "").trim().toUpperCase();
+    const k = normKey(s.getAttribute("name"));
     const v = (s.textContent ?? "").trim();
     if (k) attrs[k] = v;
   });
 
-  // 3) description (HTML a texto)
+  // 3) (fallback) cualquier SimpleData bajo el Placemark (algunos exportadores omiten SchemaData)
+  pm.querySelectorAll("SimpleData").forEach(s => {
+    const k = normKey(s.getAttribute("name"));
+    const v = (s.textContent ?? "").trim();
+    if (k && !(k in attrs)) attrs[k] = v;
+  });
+
+  // 4) description (HTML a texto) – por si además viene ahí
   const desc = textStripHtml(pm.querySelector("description")?.textContent || "");
-  const rx = /(DISTRITO|PROVINCIA|DEPARTAMEN|DEPARTAMENTO|DPTO|DEPTO)\s*[:=]\s*([^\n\r]+)/gi;
-  let m;
-  while ((m = rx.exec(desc))) {
-    attrs[m[1].toUpperCase()] = m[2].trim();
+  const rx = /(DISTRITO|PROVINCIA|DEPARTAMEN|DEPARTAMENTO|DPTO|DEPTO|CAPITAL)\s*[:=]\s*([^\n\r]+)/gi;
+  for (let m; (m = rx.exec(desc)); ) {
+    attrs[normKey(m[1])] = m[2].trim();
   }
 
-  // 🔧 Normaliza alias y truncados típicos de DBF
-  //  - DEPARTAMEN (10 chars) es lo mismo que DEPARTAMENTO
-  //  - DPTO / DEPTO alias
-  if (attrs["DEPARTAMEN"] && !attrs["DEPARTAMENTO"]) attrs["DEPARTAMENTO"] = attrs["DEPARTAMEN"];
-  if (attrs["DPTO"] && !attrs["DEPARTAMENTO"]) attrs["DEPARTAMENTO"] = attrs["DPTO"];
-  if (attrs["DEPTO"] && !attrs["DEPARTAMENTO"]) attrs["DEPARTAMENTO"] = attrs["DEPTO"];
-
-  // Algunos nombres alternos que he visto
-  if (attrs["DIST"]) attrs["DISTRITO"] = attrs["DIST"];
-  if (attrs["PROV"]) attrs["PROVINCIA"] = attrs["PROV"];
-  if (attrs["NOMBDIST"] && !attrs["DISTRITO"]) attrs["DISTRITO"] = attrs["NOMBDIST"];
-  if (attrs["NOMBREDIST"] && !attrs["DISTRITO"]) attrs["DISTRITO"] = attrs["NOMBREDIST"];
-  if (attrs["NOMBREPROV"] && !attrs["PROVINCIA"]) attrs["PROVINCIA"] = attrs["NOMBREPROV"];
-
-  return {
-    distrito: (attrs["DISTRITO"] || "").trim() || null,
-    provincia: (attrs["PROVINCIA"] || "").trim() || null,
-    departamento: (attrs["DEPARTAMENTO"] || "").trim() || null,
-    _raw: attrs,
-    description: desc
+  // normalizaciones comunes (campos truncados de DBF, alias)
+  const up = (k) => (attrs[k] || "").trim();
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = up(k);
+      if (v) return v;
+    }
+    return null;
   };
+
+  const departamento = pick("DEPARTAMENTO", "DEPARTAMEN", "DPTO", "DEPTO");
+  const provincia    = pick("PROVINCIA", "NOMBREPROV", "PROV");
+  const distrito     = pick("DISTRITO", "NOMBDIST", "NOMBREDIST", "DIST");
+  const capital      = pick("CAPITAL");
+
+  // para depurar si algo raro: ver qué claves detectamos
+  console.debug("KML attrs detectados:", attrs);
+
+  return { distrito, provincia, departamento, capital, _raw: attrs, description: desc };
 }
 
 async function extractFirstPointAndAdmin(file) {
-  // Detecta KMZ (zip) vs KML (texto)
-  let kmlText = null;
-
+  // Lee KML desde KMZ o texto
+  let kmlText;
   if (/\.(kmz)$/i.test(file.name)) {
     const zip = await JSZip.loadAsync(file);
-    // Preferir doc.kml; si no, el primer .kml
-    let kmlFile = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
+    const kmlFile = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
     if (!kmlFile) throw new Error("KMZ sin .kml interno");
     kmlText = await kmlFile.async("string");
   } else {
-    // KML plano
     kmlText = await file.text();
   }
 
   const xml = new DOMParser().parseFromString(kmlText, "application/xml");
-  // Buscar primera geometría (Polygon o LineString) y sus <coordinates>
-  let coordsEl =
-    xml.querySelector("Placemark Polygon coordinates") ||
-    xml.querySelector("Placemark LineString coordinates");
 
-  if (!coordsEl) throw new Error("No se encontró Polygon/LineString en el KML");
+  // Toma el PRIMER Placemark que tenga geometría (Polygon o LineString), incluso dentro de MultiGeometry
+  const placemarks = Array.from(xml.querySelectorAll("Placemark"));
+  let targetPm = null;
+  let coordsEl = null;
 
-  const pm = coordsEl.closest("Placemark");
+  for (const pm of placemarks) {
+    // orden de preferencia: Polygon -> LineString -> LinearRing
+    coordsEl =
+      pm.querySelector("Polygon coordinates") ||
+      pm.querySelector("LineString coordinates") ||
+      pm.querySelector("LinearRing coordinates");
+    if (coordsEl) { targetPm = pm; break; }
+  }
+
+  if (!targetPm || !coordsEl) throw new Error("No se encontró Polygon/LineString en el KML");
+
   const firstPt = parseCoordsFromEl(coordsEl);
-  const attrs = readAttrsFromPlacemark(pm);
+  const attrs   = readAttrsFromPlacemark(targetPm);
+  const pmName  = targetPm.querySelector("name")?.textContent || null;
 
-  return { ...firstPt, ...attrs, _placemarkName: pm?.querySelector("name")?.textContent || null };
+  return { ...firstPt, ...attrs, _placemarkName: pmName };
 }
 
-// ======= PROCESAR (POST /process) =======
+
 // ======= PROCESAR (POST /process) =======
 $btn.onclick = async () => {
   const f = $file.files[0];
