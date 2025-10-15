@@ -91,45 +91,108 @@ function findFirstByLocalName(root, tag) {
   return null;
 }
 
-// ======= Extraer SOLO UBIGEO del Placemark =======
+// Convierte texto de <coordinates> en un array [[lon,lat], ...]
+function coordsTextToArray(text) {
+  const tokens = (text || "").trim().split(/[\s\n\r\t]+/).filter(Boolean);
+  const pts = [];
+  for (const tok of tokens) {
+    const [lonStr, latStr] = tok.split(",");
+    const lon = Number(lonStr), lat = Number(latStr);
+    if (Number.isFinite(lon) && Number.isFinite(lat)) pts.push([lon, lat]);
+  }
+  return pts;
+}
+
+// Ray casting point-in-polygon (incluye borde como dentro)
+function pointInRing(point, ring) {
+  const x = point[0], y = point[1];
+  let inside = false;
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+
+    // check on edge (tolerancia)
+    const onEdge = (() => {
+      const minx = Math.min(xi, xj), maxx = Math.max(xi, xj);
+      const miny = Math.min(yi, yj), maxy = Math.max(yi, yj);
+      const dx = xj - xi, dy = yj - yi;
+      const cross = Math.abs((x - xi) * dy - (y - yi) * dx);
+      const tol = 1e-12; // tolerancia numérica
+      if (cross > tol) return false;
+      return x >= minx - tol && x <= maxx + tol && y >= miny - tol && y <= maxy + tol;
+    })();
+    if (onEdge) return true;
+
+    const intersect = ((yi > y) !== (yj > y)) &&
+                      (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-300) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Polígono con posibles agujeros: primer ring es exterior, el resto son agujeros
+function pointInPolygonWithHoles(point, rings) {
+  if (!rings || !rings.length) return false;
+  if (!pointInRing(point, rings[0])) return false;
+  // si cae en un agujero → fuera
+  for (let i = 1; i < rings.length; i++) {
+    if (pointInRing(point, rings[i])) return false;
+  }
+  return true;
+}
+
+// Extrae la primera coordenada (lon,lat) del primer Polygon/LineString encontrado en un KML XML
+function getFirstLonLatFromKml(xml) {
+  const placemarks = findAllByLocalName(xml, "Placemark");
+  for (const pm of placemarks) {
+    const poly = findFirstByLocalName(pm, "Polygon");
+    const line = findFirstByLocalName(pm, "LineString");
+    const ring = findFirstByLocalName(pm, "LinearRing");
+    const geom = poly || line || ring;
+    if (!geom) continue;
+
+    const coordsEl = findFirstByLocalName(geom, "coordinates") || findFirstByLocalName(pm, "coordinates");
+    if (!coordsEl) continue;
+
+    const first = parseCoordsFromEl(coordsEl);
+    if (first) return [first.lon, first.lat];
+  }
+  throw new Error("No se encontró Polygon/LineString en el KML del usuario");
+}
+
+// Lee UBIGEO desde el Placemark de distritos (usa <description> y atributos)
 function readUbigeoFromPlacemark(pm) {
   const attrs = {};
   const normKey = (k) => (k || "").split(":").pop().trim().toUpperCase();
 
-  // 1) ExtendedData/Data/value
+  // atributos (por si acaso)
   for (const d of findAllByLocalName(pm, "Data")) {
     const k = normKey(d.getAttribute("name"));
     const v = (findFirstByLocalName(d, "value")?.textContent ?? "").trim();
     if (k) attrs[k] = v;
   }
-
-  // 2) ExtendedData/SchemaData/SimpleData  (típico de shapefile → KML)
   for (const sd of findAllByLocalName(pm, "SimpleData")) {
     const k = normKey(sd.getAttribute("name"));
     const v = (sd.textContent ?? "").trim();
     if (k) attrs[k] = v;
   }
 
-  // 3) description (HTML dentro de CDATA muy común en KML)
-  //    - Buscamos explícitamente el patrón UBIGEO = 250201 incluso si viene con <B>UBIGEO</B>
+  // description con HTML: ej. <B>UBIGEO</B> = 250201
   const descRaw = findFirstByLocalName(pm, "description")?.textContent || "";
   const descTxt = textStripHtml(descRaw);
 
-  // (a) regex robusto sobre HTML crudo (con o sin <B>)
+  // a) busca en HTML crudo con <B>UBIGEO</B>
   const rxHtml = /<\s*b\s*>\s*ubigeo\s*<\/\s*b\s*>\s*[^0-9]*([0-9]{6})/i;
   const mHtml = descRaw.match(rxHtml);
-  if (mHtml?.[1]) {
-    return { ubigeo: mHtml[1], _raw: attrs, description: descTxt };
-  }
+  if (mHtml?.[1]) return mHtml[1];
 
-  // (b) regex sobre texto plano (UBIGEO = 250201 / UBIGEO: 250201 / UBIGEO 250201)
+  // b) busca en texto plano con : o =
   const rxTxt = /ubigeo\s*[:=]?\s*([0-9]{6})/i;
   const mTxt = descTxt.match(rxTxt);
-  if (mTxt?.[1]) {
-    return { ubigeo: mTxt[1], _raw: attrs, description: descTxt };
-  }
+  if (mTxt?.[1]) return mTxt[1];
 
-  // 4) Si no aparece en description, buscar en atributos típicos
+  // c) atributos típicos
   const pick = (...keys) => {
     for (const k of keys) {
       const v = attrs[k];
@@ -144,78 +207,122 @@ function readUbigeoFromPlacemark(pm) {
     get6(pick("IDDIST", "ID_DIST", "ID_DISTRITO")) ||
     null;
 
-  // 5) Último recurso: cualquier 6 dígitos en la descripción ya sin HTML
+  // d) último recurso: cualquier 6 dígitos en la descripción
   if (!ubigeo) ubigeo = (descTxt.match(/\b\d{6}\b/) || [null])[0];
 
-  console.debug("Atributos detectados:", attrs, "Desc:", descTxt, "UBIGEO:", ubigeo);
-  return { ubigeo, _raw: attrs, description: descTxt };
+  return ubigeo;
 }
 
-// ======= Primer punto + UBIGEO del primer Placemark con geometría =======
-async function extractFirstPointAndUbigeo(file) {
-  // KML desde KMZ o KML
-  let kmlText;
-  if (/\.(kmz)$/i.test(file.name)) {
-    const zip = await JSZip.loadAsync(file);
-    const kmlFile = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
-    if (!kmlFile) throw new Error("KMZ sin .kml interno");
-    kmlText = await kmlFile.async("string");
-  } else {
-    kmlText = await file.text();
-  }
+// Dado un XML de Districts.KMZ, devuelve el UBIGEO del primer polígono que contenga el punto [lon,lat]
+function findUbigeoForPointInDistrictsXML(xml, pointLonLat) {
+  const [lon, lat] = pointLonLat;
 
-  const xml = new DOMParser().parseFromString(kmlText, "application/xml");
-
-  // Busca el PRIMER Placemark que tenga geometría (Polygon, LineString o LinearRing)
+  // Recorre Placemarks con Polygon (y MultiGeometry)
   const placemarks = findAllByLocalName(xml, "Placemark");
-  let targetPm = null, coordsEl = null;
-
   for (const pm of placemarks) {
-    // preferencia: Polygon → LineString → LinearRing
-    const poly = findFirstByLocalName(pm, "Polygon");
-    const line = findFirstByLocalName(pm, "LineString");
-    const ring = findFirstByLocalName(pm, "LinearRing");
-    const geom = poly || line || ring;
-    if (!geom) continue;
+    // múltiples polígonos por Placemark (MultiGeometry)
+    const polys = findAllByLocalName(pm, "Polygon");
+    if (!polys.length) continue;
 
-    coordsEl = findFirstByLocalName(geom, "coordinates") || findFirstByLocalName(pm, "coordinates");
-    if (coordsEl) { targetPm = pm; break; }
+    // Para cada Polygon, arma sus rings (outer + inner) y prueba el punto
+    for (const poly of polys) {
+      const rings = [];
+
+      // outerBoundaryIs
+      const outer = findFirstByLocalName(poly, "outerBoundaryIs");
+      const outerRing = outer ? findFirstByLocalName(outer, "LinearRing") : null;
+      const outerCoordsEl = outerRing ? findFirstByLocalName(outerRing, "coordinates") : null;
+      if (outerCoordsEl) {
+        const ringPts = coordsTextToArray(outerCoordsEl.textContent);
+        if (ringPts.length) rings.push(ringPts);
+      }
+
+      // innerBoundaryIs (agujeros)
+      const inners = findAllByLocalName(poly, "innerBoundaryIs");
+      for (const ib of inners) {
+        const innerRing = findFirstByLocalName(ib, "LinearRing");
+        const innerCoordsEl = innerRing ? findFirstByLocalName(innerRing, "coordinates") : null;
+        if (innerCoordsEl) {
+          const ringPts = coordsTextToArray(innerCoordsEl.textContent);
+          if (ringPts.length) rings.push(ringPts);
+        }
+      }
+
+      if (!rings.length) continue;
+
+      // ¿El punto está dentro?
+      const inside = pointInPolygonWithHoles([lon, lat], rings);
+      if (inside) {
+        // sacar UBIGEO del Placemark y devolver
+        const ubigeo = readUbigeoFromPlacemark(pm);
+        return typeof ubigeo === "string" ? ubigeo : (ubigeo || null);
+      }
+    }
   }
+  return null;
+}
 
-  if (!targetPm || !coordsEl) throw new Error("No se encontró Polygon/LineString en el KML");
-
-  const firstPt = parseCoordsFromEl(coordsEl);
-  const { ubigeo, _raw, description } = readUbigeoFromPlacemark(targetPm);
-  const pmName  = findFirstByLocalName(targetPm, "name")?.textContent || null;
-
-  console.debug("Placemark usado:", pmName, "UBIGEO:", ubigeo, targetPm.outerHTML.slice(0, 1000));
-  return { ...firstPt, ubigeo, _raw, description, _placemarkName: pmName };
+// Carga y parsea Districts.KMZ desde /data/Districts.KMZ
+async function loadDistrictsXML() {
+  const url = "data/Districts.KMZ"; // respeta mayúsculas/minúsculas
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("No se pudo cargar " + url);
+  const blob = await resp.blob();
+  // KMZ → KML
+  const zip = await JSZip.loadAsync(blob);
+  const kmlFile = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
+  if (!kmlFile) throw new Error("Districts.KMZ no contiene .kml interno");
+  const kmlText = await kmlFile.async("string");
+  return new DOMParser().parseFromString(kmlText, "application/xml");
 }
 
 // ======= PROCESAR (POST /process) =======
 $btn.onclick = async () => {
-  const f = $file.files[0];
+  let f = $file.files[0];
   if (!f) { alert("Selecciona un archivo .kmz o .kml"); return; }
   if (!/\.(kmz|kml)$/i.test(f.name)) { alert("Archivo inválido"); return; }
 
-  // 1) Leer localmente UBIGEO antes de enviar al backend
+  // 1) Del archivo del usuario: primera coordenada del primer polígono/línea
+  let pointLonLat;
   try {
-    const info = await extractFirstPointAndUbigeo(f);
-    window.__ubigeo = info?.ubigeo || null;
-
-    // popup SOLO UBIGEO
-    alert(
-      [
-        "✓ Lectura local OK",
-        `UBIGEO: ${info?.ubigeo ?? "(no encontrado)"}`
-      ].join("\n")
-    );
+    // KML desde el archivo del usuario
+    let userKmlText;
+    if (/\.(kmz)$/i.test(f.name)) {
+      const zip = await JSZip.loadAsync(f);
+      const kmlFile = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
+      if (!kmlFile) throw new Error("KMZ sin .kml interno");
+      userKmlText = await kmlFile.async("string");
+    } else {
+      userKmlText = await f.text();
+    }
+    const userXML = new DOMParser().parseFromString(userKmlText, "application/xml");
+    pointLonLat = getFirstLonLatFromKml(userXML); // [lon, lat]
   } catch (e) {
-    console.warn("No se pudo extraer UBIGEO local:", e);
-    alert("No se pudo leer UBIGEO del archivo.\nContinuaré con el proceso normal.");
+    console.error(e);
+    alert("No se pudo leer la primera coordenada del KMZ/KML subido.");
+    return;
   }
 
-  // 2) Preparar UI para el envío al backend
+  // 2) Cargar Districts.KMZ y buscar UBIGEO del polígono que contiene el punto
+  let ubigeo = null;
+  try {
+    const districtsXML = await loadDistrictsXML();
+    ubigeo = findUbigeoForPointInDistrictsXML(districtsXML, pointLonLat);
+  } catch (e) {
+    console.error(e);
+    alert("No se pudo cargar o procesar data/Districts.KMZ.");
+  }
+
+  // 3) Mostrar ventana emergente con UBIGEO
+  window.__ubigeo = ubigeo || null;
+  alert(
+    [
+      "✓ Lectura local OK",
+      `UBIGEO: ${ubigeo ?? "(no encontrado)"}`
+    ].join("\n")
+  );
+
+  // 4) Continúa con tu flujo normal (subir al backend)
   $btn.disabled = true; 
   $cancel.disabled = true;
   $log.style.display = "none"; 
@@ -223,7 +330,6 @@ $btn.onclick = async () => {
   resetBars(); 
   setStatus("Preparando…");
 
-  // 3) Enviar al backend
   const fd = new FormData();
   fd.append("test_kmz", f, f.name);
 
