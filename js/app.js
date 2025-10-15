@@ -56,7 +56,7 @@ $cancel.onclick = () => {
   }
 };
 
-// ---------- Utilidades de parsing ----------
+// ---------- Utilidades ----------
 function textStripHtml(html) {
   const div = document.createElement("div");
   div.innerHTML = html || "";
@@ -91,30 +91,45 @@ function findFirstByLocalName(root, tag) {
   return null;
 }
 
-// ======= Solo UBIGEO desde el Placemark =======
-function readAttrsFromPlacemark(pm) {
+// ======= Extraer SOLO UBIGEO del Placemark =======
+function readUbigeoFromPlacemark(pm) {
   const attrs = {};
   const normKey = (k) => (k || "").split(":").pop().trim().toUpperCase();
 
-  // ExtendedData/Data/value
+  // 1) ExtendedData/Data/value
   for (const d of findAllByLocalName(pm, "Data")) {
     const k = normKey(d.getAttribute("name"));
     const v = (findFirstByLocalName(d, "value")?.textContent ?? "").trim();
     if (k) attrs[k] = v;
   }
 
-  // ExtendedData/SchemaData/SimpleData (típico de shapefile → KML)
+  // 2) ExtendedData/SchemaData/SimpleData  (típico de shapefile → KML)
   for (const sd of findAllByLocalName(pm, "SimpleData")) {
     const k = normKey(sd.getAttribute("name"));
     const v = (sd.textContent ?? "").trim();
     if (k) attrs[k] = v;
   }
 
-  // <description> como respaldo
-  const desc = textStripHtml(findFirstByLocalName(pm, "description")?.textContent || "");
+  // 3) description (HTML dentro de CDATA muy común en KML)
+  //    - Buscamos explícitamente el patrón UBIGEO = 250201 incluso si viene con <B>UBIGEO</B>
+  const descRaw = findFirstByLocalName(pm, "description")?.textContent || "";
+  const descTxt = textStripHtml(descRaw);
 
-  // ---- Resolver UBIGEO (prioridades) ----
-  const get6 = (v) => (v || "").match(/\d{6}/)?.[0] || null;
+  // (a) regex robusto sobre HTML crudo (con o sin <B>)
+  const rxHtml = /<\s*b\s*>\s*ubigeo\s*<\/\s*b\s*>\s*[^0-9]*([0-9]{6})/i;
+  const mHtml = descRaw.match(rxHtml);
+  if (mHtml?.[1]) {
+    return { ubigeo: mHtml[1], _raw: attrs, description: descTxt };
+  }
+
+  // (b) regex sobre texto plano (UBIGEO = 250201 / UBIGEO: 250201 / UBIGEO 250201)
+  const rxTxt = /ubigeo\s*[:=]?\s*([0-9]{6})/i;
+  const mTxt = descTxt.match(rxTxt);
+  if (mTxt?.[1]) {
+    return { ubigeo: mTxt[1], _raw: attrs, description: descTxt };
+  }
+
+  // 4) Si no aparece en description, buscar en atributos típicos
   const pick = (...keys) => {
     for (const k of keys) {
       const v = attrs[k];
@@ -122,31 +137,22 @@ function readAttrsFromPlacemark(pm) {
     }
     return null;
   };
+  const get6 = (v) => (v || "").match(/\b\d{6}\b/)?.[0] || null;
 
-  // nombres comunes en datasets de Perú
   let ubigeo =
     get6(pick("UBIGEO", "UBI_GEO", "CODUBIGEO", "UBIGEO_6", "CODIGO_UBIGEO")) ||
-    get6(pick("IDDIST", "ID_DIST", "ID_DISTRITO")) || // muchos shapefiles lo traen así (ej: 060801)
+    get6(pick("IDDIST", "ID_DIST", "ID_DISTRITO")) ||
     null;
 
-  // si aún no, intenta componer desde IDDPTO/IDPROV/IDDIST (cuando IDDIST = 3 dígitos)
-  if (!ubigeo) {
-    const iddpto = (attrs["IDDPTO"] || attrs["CCDD"] || "").toString().padStart(2, "0");
-    const idprov = (attrs["IDPROV"] || attrs["CCPP"] || "").toString().slice(-2).padStart(2, "0");
-    const iddist = (attrs["IDDIST"] || attrs["CCDI"] || "").toString().slice(-2).padStart(2, "0");
-    const candidate = `${iddpto}${idprov}${iddist}`;
-    if (/^\d{6}$/.test(candidate)) ubigeo = candidate;
-  }
+  // 5) Último recurso: cualquier 6 dígitos en la descripción ya sin HTML
+  if (!ubigeo) ubigeo = (descTxt.match(/\b\d{6}\b/) || [null])[0];
 
-  // último recurso: buscar el primer 6 dígitos en description
-  if (!ubigeo) ubigeo = (desc.match(/\b\d{6}\b/) || [null])[0];
-
-  console.debug("Atributos detectados:", attrs, "UBIGEO:", ubigeo);
-  return { ubigeo, _raw: attrs, description: desc };
+  console.debug("Atributos detectados:", attrs, "Desc:", descTxt, "UBIGEO:", ubigeo);
+  return { ubigeo, _raw: attrs, description: descTxt };
 }
 
-// ======= Extrae primer punto + UBIGEO del primer Placemark con geometría =======
-async function extractFirstPointAndAdmin(file) {
+// ======= Primer punto + UBIGEO del primer Placemark con geometría =======
+async function extractFirstPointAndUbigeo(file) {
   // KML desde KMZ o KML
   let kmlText;
   if (/\.(kmz)$/i.test(file.name)) {
@@ -179,11 +185,11 @@ async function extractFirstPointAndAdmin(file) {
   if (!targetPm || !coordsEl) throw new Error("No se encontró Polygon/LineString en el KML");
 
   const firstPt = parseCoordsFromEl(coordsEl);
-  const attrs   = readAttrsFromPlacemark(targetPm);
+  const { ubigeo, _raw, description } = readUbigeoFromPlacemark(targetPm);
   const pmName  = findFirstByLocalName(targetPm, "name")?.textContent || null;
 
-  console.debug("Placemark usado:", pmName, targetPm.outerHTML.slice(0, 1500));
-  return { ...firstPt, ...attrs, _placemarkName: pmName };
+  console.debug("Placemark usado:", pmName, "UBIGEO:", ubigeo, targetPm.outerHTML.slice(0, 1000));
+  return { ...firstPt, ubigeo, _raw, description, _placemarkName: pmName };
 }
 
 // ======= PROCESAR (POST /process) =======
@@ -192,18 +198,16 @@ $btn.onclick = async () => {
   if (!f) { alert("Selecciona un archivo .kmz o .kml"); return; }
   if (!/\.(kmz|kml)$/i.test(f.name)) { alert("Archivo inválido"); return; }
 
-  // 1) Leer localmente el primer punto y UBIGEO antes de enviar al backend
+  // 1) Leer localmente UBIGEO antes de enviar al backend
   try {
-    const info = await extractFirstPointAndAdmin(f);
-    // guardar temporalmente
+    const info = await extractFirstPointAndUbigeo(f);
     window.__ubigeo = info?.ubigeo || null;
 
-    // popup SOLO UBIGEO (y coords por depuración rápida)
+    // popup SOLO UBIGEO
     alert(
       [
         "✓ Lectura local OK",
-        `UBIGEO: ${info?.ubigeo ?? "(no encontrado)"}`,
-        `Lon,Lat: ${info?.lon ?? "?"}, ${info?.lat ?? "?"}`
+        `UBIGEO: ${info?.ubigeo ?? "(no encontrado)"}`
       ].join("\n")
     );
   } catch (e) {
