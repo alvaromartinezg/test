@@ -817,7 +817,10 @@ function buildFadeRowsHtml(rows, meta, defaults){
       // Info del enlace para el encabezado de fila
       const linkLabel = `${L.siteA} ↔ ${L.siteB}`;
       const bandLabel = String(L.freqBand||'—');
-      const hopLabel  = String(L.hopLength||'—');
+      // Mostrar hop length con 1 decimal (si es número válido)
+      const hopNum = parseFloat(L.hopLength);
+      const hopLabel = Number.isFinite(hopNum) ? hopNum.toFixed(1) : String(L.hopLength || '—');
+
   
       return `
         <tr>
