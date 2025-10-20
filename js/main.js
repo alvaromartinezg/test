@@ -21,6 +21,12 @@ const RAIN_R = {
   N: { '0.01': 95, '0.005':118.8, '0.001':180 }
 };
 
+// ===== Factores p para ajustar FM_Max cuando % < 0.01 =====
+const FM_P_FACTORS = {
+  '0.005': { 6: 1.270886185, 7: 1.270886185, 8: 1.270886185, 13: 1.264444418 },
+  '0.001': { 6: 2.040099086, 7: 2.040099086, 8: 2.040099086, 13: 1.984318955 }
+};
+
 const els = {
   file1: document.getElementById('file1'),
   file2: document.getElementById('file2'),
@@ -845,6 +851,9 @@ function buildFadeRowsHtml(rows, meta, defaults){
       const fmMax = (gamma!=null && dNum!=null && rFac!=null)
         ? (gamma * dNum * rFac)
         : null;
+      // Ajuste por factor p (solo para 0.005 y 0.001)
+      const fmShown = applyPFactorToFM(fmMax, m.fGHz, pct);
+
   
       // Info del enlace para el encabezado de fila
       const linkLabel = `${L.siteA} ↔ ${L.siteB}`;
@@ -876,7 +885,8 @@ function buildFadeRowsHtml(rows, meta, defaults){
           <td id="rRain_${i}">${(R!=null)? R : '—'}</td>
           <td id="g_${i}">${(gamma!=null)? gamma.toFixed(4) : '—'}</td>
           <td id="rFac_${i}">${(rFac!=null)? rFac.toFixed(3) : '—'}</td>
-          <td id="fm_${i}">${(fmMax!=null)? fmMax.toFixed(3) : '—'}</td>
+          <td id="fm_${i}">${(fmShown!=null)? fmShown.toFixed(3) : '—'}</td>
+          
         </tr>`;
     }).join('');
   
@@ -886,16 +896,74 @@ function buildFadeRowsHtml(rows, meta, defaults){
 
 
 /** Exporta el resultado mostrado a CSV */
+/** Exporta el resultado mostrado a CSV (recalcula k, a, R, γ, r y FM con factor p según el % seleccionado) */
 function exportFadeCsv(){
   const store = window.__fadeRows;
   if (!store || !store.rows?.length){
     setStatus('No hay datos para exportar', 'bad');
     return;
   }
-  const { cols, rows } = store;
-  const header = cols.map(c=>c.label).join(',');
-  const esc = s => `"${String(s).replaceAll('"','""')}"`;
-  const body = rows.map(r => cols.map(c => esc(r[c.key] ?? '')).join(',')).join('\n');
+
+  const rows = store.rows;
+  const meta = store.meta || [];
+
+  const header = [
+    'Site A','Site B','Band','Hop length (km)',
+    'Zone','% tiempo',
+    'Polarización','Frecuencia (GHz)',
+    'k','α','R (mm/h)','γ (dB/km)','r','FM (dB)'
+  ].join(',');
+
+  const esc = s => `"${String(s ?? '').replaceAll('"','""')}"`;
+
+  const body = rows.map((L, i) => {
+    const m = meta[i] || {};
+    const zone = document.querySelector(`select.zoneSel[data-idx="${i}"]`)?.value || 'N';
+    const pct  = document.querySelector(`select.pctSel[data-idx="${i}"]`)?.value  || '0.005';
+
+    const fGHz = m.fGHz ?? getFreqGHzFromBand(L.freqBand);
+    const pol  = m.pol  ?? getPolHV(L.polar);
+
+    const coeff = (fGHz && pol) ? (RAIN_COEFFS[fGHz]?.[pol]) : null;
+    const R     = RAIN_R[zone]?.[pct];
+
+    const k = coeff?.k ?? '';
+    const a = coeff?.a ?? '';
+
+    const gamma = (k!=='' && a!=='' && R!=null) ? (k * Math.pow(R, a)) : null;
+
+    const dNum = toNumberKm(L.hopLength);
+    const hopShow = (dNum!=null) ? dNum.toFixed(1) : (L.hopLength ?? '');
+
+    const rFac = (gamma!=null && dNum!=null && a!=='' && R!=null && fGHz)
+      ? computeRFactor(fGHz, dNum, R, a)
+      : null;
+
+    const fmMax = (gamma!=null && dNum!=null && rFac!=null)
+      ? (gamma * dNum * rFac)
+      : null;
+
+    // Ajuste por factor p (solo para 0.005 y 0.001)
+    const fmShown = applyPFactorToFM(fmMax, fGHz, pct);
+
+    return [
+      esc(L.siteA),
+      esc(L.siteB),
+      esc(String(L.freqBand ?? '')),
+      esc(hopShow),
+      esc(zone),
+      esc(pct),
+      esc(pol ?? ''),
+      esc(fGHz ?? ''),
+      esc((k!=='' ? k.toFixed(6) : '')),
+      esc((a!=='' ? a.toFixed(4) : '')),
+      esc((R!=null ? R : '')),
+      esc((gamma!=null ? gamma.toFixed(4) : '')),
+      esc((rFac!=null ? rFac.toFixed(3) : '')),
+      esc((fmShown!=null ? fmShown.toFixed(3) : ''))
+    ].join(',');
+  }).join('\n');
+
   const csv = header + '\n' + body;
 
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
@@ -976,6 +1044,8 @@ if (els.fadeTable){
       ? (gamma * dNum * rFac)
       : null;
 
+    const fmShown = applyPFactorToFM(fmMax, meta.fGHz, pct);
+    
     const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.textContent = val; };
 
     set(`k_${idx}`, (k!=null)? k.toFixed(6) : '—');
@@ -983,7 +1053,7 @@ if (els.fadeTable){
     set(`rRain_${idx}`, (R!=null)? R : '—');
     set(`g_${idx}`, (gamma!=null)? gamma.toFixed(4) : '—');
     set(`rFac_${idx}`, (rFac!=null)? rFac.toFixed(3) : '—');
-    set(`fm_${idx}`, (fmMax!=null)? fmMax.toFixed(3) : '—');
+    set(`fm_${idx}`, (fmShown!=null)? fmShown.toFixed(3) : '—');
   });
 }
 
