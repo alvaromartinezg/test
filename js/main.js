@@ -34,6 +34,13 @@ const els = {
   copyImg: document.getElementById('copyImg'),
 
   leadersToggle: document.getElementById('leadersToggle'),
+
+  fadeMarginBtn: document.getElementById('fadeMarginBtn'),
+  fadeTableWrap: document.getElementById('fadeTableWrap'),
+  fadeTable: document.getElementById('fadeTable'),
+  fadeCsvBtn: document.getElementById('fadeCsvBtn'),
+  fadeCount: document.getElementById('fadeCount'),
+
   
 
 };
@@ -288,7 +295,10 @@ async function loadFile(file, datasetIdx){
   // habilitar UI
   document.getElementById('q1').disabled = false;
   document.getElementById('q2').disabled = false;
-  els.previewBtn.disabled = false; els.freqFilter.disabled = false;
+  els.previewBtn.disabled = false;
+  els.freqFilter.disabled = false;
+  if (els.fadeMarginBtn) els.fadeMarginBtn.disabled = false;
+
   updateAddStationState();
 
   setStatus(`Cargado archivo ${datasetIdx+1}: ${rows.length} filas (total enlaces: ${links.length})`,'ok');
@@ -315,6 +325,14 @@ function normalizeLinks(rows, datasetIdx){
     const config   = r[m('configuration')] ?? '';
     const polar    = r[m('polarization')] ?? '';
     const freqArr  = r[m('frequency arrangement')] ?? r[m('frequency  arrangement')] ?? '';
+    const hopLen =
+      r[m('hop length')] ??
+      r[m('hoplength')] ??
+      r[m('distance (km)')] ??
+      r[m('link length')] ??
+      r[m('distance')] ??
+      '';
+
 
     if(!siteA || !siteB) continue;
     if(!Number.isFinite(latA) || !Number.isFinite(lonA) || !Number.isFinite(latB) || !Number.isFinite(lonB)) continue;
@@ -324,8 +342,10 @@ function normalizeLinks(rows, datasetIdx){
       siteB:String(siteB), latB:+latB, lonB:+lonB,
       freqBand:String(freqBand||''), chSpacing:String(chSpacing||''), chNo:String(chNo||''),
       config:String(config||''), polar:String(polar||''), freqArr:String(freqArr||''),
+      hopLength:String(hopLen||''),
       dataset:datasetIdx||0,
     });
+
   }
   return out;
 }
@@ -636,6 +656,121 @@ document.getElementById('previewBtn').addEventListener('click', ()=>{
   const sub = buildHeaderSub(filterLinksBySites().length, (els.freqFilter?.value || 'todos'));
   openModal(dataUrl, sub);
 });
+// === Analizar Fade Margin (lista de enlaces por estaciones + banda, sin coords/azimuth) ===
+if (els.fadeMarginBtn){
+  els.fadeMarginBtn.addEventListener('click', ()=>{
+    analyzeFadeMargin();
+  });
+}
+
+if (els.fadeCsvBtn){
+  els.fadeCsvBtn.addEventListener('click', ()=>{
+    exportFadeCsv();
+  });
+}
+
+/**
+ * Construye la tabla con enlaces que tocan Estación 1/2 y coinciden con la banda seleccionada.
+ * Muestra: SiteA, SiteB, Hop length, Frequency Band, Channel Spacing, Channel No., Configuration, Polarization, Frequency Arrangement, Dataset
+ * Omite: coordenadas y azimuth.
+ */
+function analyzeFadeMargin(){
+  // Leer estaciones de los dos primeros inputs (q1, q2)
+  const q1 = (document.getElementById('q1')?.value || '').trim();
+  const q2 = (document.getElementById('q2')?.value || '').trim();
+  const stations = [...new Set([q1, q2].filter(Boolean))];
+
+  if (!stations.length){
+    setStatus('Escribe al menos una estación en Estación 1/2', 'bad');
+    if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
+    return;
+  }
+
+  const bandSel = (els.freqFilter?.value || 'todos');
+  const rows = links.filter(L => {
+    const touches = stations.some(s => eq(L.siteA, s) || eq(L.siteB, s));
+    const bandOk = (bandSel === 'todos') ? true : (normBand(L.freqBand) === normBand(bandSel));
+    return touches && bandOk;
+  });
+
+  if (!rows.length){
+    setStatus('No hay enlaces para esas condiciones', 'bad');
+    if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
+    return;
+  }
+
+  // Columnas a mostrar (sin coords/azimuth)
+  const cols = [
+    { key:'siteA',        label:'Site A' },
+    { key:'siteB',        label:'Site B' },
+    { key:'hopLength',    label:'Hop length' },
+    { key:'freqBand',     label:'Frequency Band' },
+    { key:'chSpacing',    label:'Channel Spacing' },
+    { key:'chNo',         label:'Channel No.' },
+    { key:'config',       label:'Configuration' },
+    { key:'polar',        label:'Polarization' },
+    { key:'freqArr',      label:'Frequency Arrangement' },
+    { key:'dataset',      label:'Dataset' },
+  ];
+
+  // Render tabla
+  if (els.fadeTable){
+    els.fadeTable.innerHTML = buildTableHtml(cols, rows);
+  }
+  if (els.fadeTableWrap){
+    els.fadeTableWrap.style.display = 'block';
+  }
+  if (els.fadeCount){
+    els.fadeCount.textContent = `Resultados: ${rows.length}`;
+    els.fadeCount.style.display = 'inline-block';
+  }
+  setStatus(`Listado de ${rows.length} enlaces`, 'ok');
+
+  // Guarda en memoria para CSV
+  window.__fadeRows = { cols, rows };
+}
+
+/** Devuelve HTML de una tabla simple */
+function buildTableHtml(cols, rows){
+  const thead = `<thead><tr>${cols.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead>`;
+  const tbody = `<tbody>${
+    rows.map(r => {
+      return `<tr>${
+        cols.map(c => {
+          const v = (r[c.key] ?? '');
+          const val = String(v);
+          const cls = (c.key==='siteA' || c.key==='siteB') ? 'mono' : '';
+          return `<td class="${cls}">${escapeHtml(val)}</td>`;
+        }).join('')
+      }</tr>`;
+    }).join('')
+  }</tbody>`;
+  return `<table class="table">${thead}${tbody}</table>`;
+}
+
+/** Exporta el resultado mostrado a CSV */
+function exportFadeCsv(){
+  const store = window.__fadeRows;
+  if (!store || !store.rows?.length){
+    setStatus('No hay datos para exportar', 'bad');
+    return;
+  }
+  const { cols, rows } = store;
+  const header = cols.map(c=>c.label).join(',');
+  const esc = s => `"${String(s).replaceAll('"','""')}"`;
+  const body = rows.map(r => cols.map(c => esc(r[c.key] ?? '')).join(',')).join('\n');
+  const csv = header + '\n' + body;
+
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'fade_margin_enlaces.csv'; a.click();
+  URL.revokeObjectURL(url);
+  setStatus('CSV generado', 'ok');
+}
+
+
+
 
 els.dlImg.addEventListener('click', ()=>{
   const c = els.cnv;
