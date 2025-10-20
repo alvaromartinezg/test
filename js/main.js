@@ -887,7 +887,11 @@ function buildFadeRowsHtml(rows, meta, defaults){
 
         <!-- valores en rojo -->
         <td id="fm_${i}" class="neg">${(fmShown!=null)? fmShown.toFixed(3) : '—'}</td>
-        <td id="mi_${i}" class="neg">${(maxInterf!=null)? maxInterf.toFixed(3) : '—'}</td>
+        <td id="mi_${i}" class="neg">${
+          (maxInterf==null) ? '—' :
+          (maxInterf < -89 ? 'No accept interf.' : maxInterf.toFixed(3))
+        }</td>
+
       </tr>`;
   }).join('');
 
@@ -1064,7 +1068,12 @@ if (els.fadeTable){
     set(`rFac_${idx}`, (rFac!=null)? rFac.toFixed(3) : '—');
     set(`fm_${idx}`, (fmShown!=null)? fmShown.toFixed(3) : '—');       // FM_MIN mostrado
     const miEl = document.getElementById(`mi_${idx}`);
-    if (miEl) miEl.textContent = (maxInterf!=null)? maxInterf.toFixed(3) : '—';
+    if (miEl){
+      if (maxInterf == null) miEl.textContent = '—';
+      else if (maxInterf < -89) miEl.textContent = 'No accept interf.';
+      else miEl.textContent = maxInterf.toFixed(3);
+    }
+
   });
 }
 
