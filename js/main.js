@@ -353,7 +353,9 @@ function normalizeLinks(rows, datasetIdx){
       r[m('hop length')] ??
       r[m('hop length (km)')] ??
       '';
-
+    const sensRaw = r[m('sensitivity (dbm)')] ?? r[m('sensibilidad (dbm)')] ?? '';
+    const sensNum = Number.parseFloat(String(sensRaw).replace(',', '.'));
+    const sensitivity = Number.isFinite(sensNum) ? sensNum : null;
 
     if(!siteA || !siteB) continue;
     if(!Number.isFinite(latA) || !Number.isFinite(lonA) || !Number.isFinite(latB) || !Number.isFinite(lonB)) continue;
@@ -364,6 +366,7 @@ function normalizeLinks(rows, datasetIdx){
       freqBand:String(freqBand||''), chSpacing:String(chSpacing||''), chNo:String(chNo||''),
       config:String(config||''), polar:String(polar||''), freqArr:String(freqArr||''),
       hopLength:String(hopLen||''),
+      sensitivity,
       dataset:datasetIdx||0,
     });
 
@@ -809,92 +812,88 @@ function buildTableHtml(cols, rows){
 
 // Tabla con selectores Zone/Pct y cálculo γ por enlace
 function buildFadeRowsHtml(rows, meta, defaults){
-    const head = `
-      <thead>
-        <tr>
-          <th>Enlace</th>
-          <th>Zone (ITU)</th>
-          <th>% tiempo</th>
-          <th>Polar...</th>
-          <th>Freq</th>
-          <th>k</th>
-          <th>α</th>
-          <th>R (mm/h)</th>
-          <th>γ (dB/km)</th>
-          <th>r</th>
-          <th>FM_min (dB)</th>
-        </tr>
-      </thead>`;
-  
-    const body = rows.map((L, i) => {
-      const m   = meta[i] || {};
-      const zone = defaults.zone;   // 'N'
-      const pct  = defaults.pct;    // '0.005'
-  
-      // Coeficientes y R
-      const coeff = (m.fGHz && m.pol) ? (RAIN_COEFFS[m.fGHz]?.[m.pol]) : null;
-      const R = RAIN_R[zone]?.[pct];
-      const k = coeff?.k;
-      const a = coeff?.a;
-  
-      // γ
-      const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
-  
-      // d (num para cálculo) + etiqueta con 1 decimal para mostrar
-      const dNum = toNumberKm(L.hopLength);
-      const hopLabel = (dNum!=null) ? dNum.toFixed(1) : String(L.hopLength || '—');
-  
-      // r y FM_Max
-      const rFac  = (gamma!=null && dNum!=null && a!=null && R!=null && m.fGHz)
-        ? computeRFactor(m.fGHz, dNum, R, a)
-        : null;
-      const fmMax = (gamma!=null && dNum!=null && rFac!=null)
-        ? (gamma * dNum * rFac)
-        : null;
-      // Ajuste por factor p (solo para 0.005 y 0.001)
-      const fmShown = applyPFactorToFM(fmMax, m.fGHz, pct);
+  const head = `
+    <thead>
+      <tr>
+        <th>Enlace</th>
+        <th>Zone (ITU)</th>
+        <th>% tiempo</th>
+        <th>Polarización</th>
+        <th>Frecuencia (GHz)</th>
+        <th>k</th>
+        <th>α</th>
+        <th>R (mm/h)</th>
+        <th>γ (dB/km)</th>
+        <th>r</th>
+        <th>FM_MIN (dB)</th>       <!-- renombrado -->
+        <th>Max Interf. (dB)</th>  <!-- nuevo -->
+      </tr>
+    </thead>`;
 
-  
-      // Info del enlace para el encabezado de fila
-      const linkLabel = `${L.siteA} ↔ ${L.siteB}`;
-      const bandLabel = String(L.freqBand||'—');
-  
-      return `
-        <tr>
-          <td class="mono">
-            <div><strong>${escapeHtml(linkLabel)}</strong></div>
-            <div style="font-size:12px;color:#555">Banda: ${escapeHtml(bandLabel)} · Hop: ${escapeHtml(hopLabel)} km</div>
-          </td>
-          <td>
-            <select class="zoneSel" data-idx="${i}">
-              <option value="P">P</option>
-              <option value="N" selected>N</option>
-            </select>
-          </td>
-          <td>
-            <select class="pctSel" data-idx="${i}">
-              <option value="0.01">0.01%</option>
-              <option value="0.005" selected>0.005%</option>
-              <option value="0.001">0.001%</option>
-            </select>
-          </td>
-          <td>${escapeHtml(m.pol || '—')}</td>
-          <td>${m.fGHz ?? '—'}</td>
-          <td id="k_${i}">${(k!=null)? k.toFixed(6) : '—'}</td>
-          <td id="a_${i}">${(a!=null)? a.toFixed(4) : '—'}</td>
-          <td id="rRain_${i}">${(R!=null)? R : '—'}</td>
-          <td id="g_${i}">${(gamma!=null)? gamma.toFixed(4) : '—'}</td>
-          <td id="rFac_${i}">${(rFac!=null)? rFac.toFixed(3) : '—'}</td>
-          <td id="fm_${i}">${(fmShown!=null)? fmShown.toFixed(3) : '—'}</td>
-          
-        </tr>`;
-    }).join('');
-  
-    return `<table class="table">${head}<tbody>${body}</tbody></table>`;
-  }
-  
+  const body = rows.map((L, i)=>{
+    const m   = meta[i] || {};
+    const zone = defaults.zone;
+    const pct  = defaults.pct;
 
+    const coeff = (m.fGHz && m.pol) ? (RAIN_COEFFS[m.fGHz]?.[m.pol]) : null;
+    const R = RAIN_R[zone]?.[pct];
+    const k = coeff?.k, a = coeff?.a;
+    const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
 
+    const dNum = toNumberKm(L.hopLength);
+    const hopLabel = (dNum!=null) ? dNum.toFixed(1) : String(L.hopLength || '—');
+
+    const rFac  = (gamma!=null && dNum!=null && a!=null && R!=null && m.fGHz)
+      ? computeRFactor(m.fGHz, dNum, R, a)
+      : null;
+
+    const fmMax = (gamma!=null && dNum!=null && rFac!=null)
+      ? (gamma * dNum * rFac)
+      : null;
+
+    const fmShown = applyPFactorToFM(fmMax, m.fGHz, pct); // el que mostramos como FM_MIN
+    const sens    = (typeof L.sensitivity === 'number') ? L.sensitivity : null;
+    const maxInterf = (sens!=null && fmShown!=null) ? (sens - fmShown) : null;
+
+    const linkLabel = `${L.siteA} ↔ ${L.siteB}`;
+    const bandLabel = String(L.freqBand||'—');
+
+    return `
+      <tr>
+        <td class="mono">
+          <div><strong>${escapeHtml(linkLabel)}</strong></div>
+          <div style="font-size:12px;color:#555">Banda: ${escapeHtml(bandLabel)} · Hop: ${escapeHtml(hopLabel)} km</div>
+        </td>
+        <td>
+          <select class="zoneSel" data-idx="${i}">
+            <option value="P">P</option>
+            <option value="N" selected>N</option>
+          </select>
+        </td>
+        <td>
+          <select class="pctSel" data-idx="${i}">
+            <option value="0.01">0.01%</option>
+            <option value="0.005" selected>0.005%</option>
+            <option value="0.001">0.001%</option>
+          </select>
+        </td>
+        <td>${escapeHtml(m.pol || '—')}</td>
+        <td>${m.fGHz ?? '—'}</td>
+        <td id="k_${i}">${(k!=null)? k.toFixed(6) : '—'}</td>
+        <td id="a_${i}">${(a!=null)? a.toFixed(4) : '—'}</td>
+        <td id="rRain_${i}">${(R!=null)? R : '—'}</td>
+        <td id="g_${i}">${(gamma!=null)? gamma.toFixed(4) : '—'}</td>
+        <td id="rFac_${i}">${(rFac!=null)? rFac.toFixed(3) : '—'}</td>
+
+        <!-- valores en rojo -->
+        <td id="fm_${i}" class="neg">${(fmShown!=null)? fmShown.toFixed(3) : '—'}</td>
+        <td id="mi_${i}" class="neg">${(maxInterf!=null)? maxInterf.toFixed(3) : '—'}</td>
+      </tr>`;
+  }).join('');
+
+  return `<table class="table">${head}<tbody>${body}</tbody></table>`;
+}
+  
 /** Exporta el resultado mostrado a CSV */
 /** Exporta el resultado mostrado a CSV (recalcula k, a, R, γ, r y FM con factor p según el % seleccionado) */
 function exportFadeCsv(){
@@ -1053,7 +1052,9 @@ if (els.fadeTable){
       : null;
 
     const fmShown = applyPFactorToFM(fmMax, meta.fGHz, pct);
-    
+    const sens    = (typeof L.sensitivity === 'number') ? L.sensitivity : null;
+    const maxInterf = (sens!=null && fmShown!=null) ? (sens - fmShown) : null;
+
     const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.textContent = val; };
 
     set(`k_${idx}`, (k!=null)? k.toFixed(6) : '—');
@@ -1061,8 +1062,11 @@ if (els.fadeTable){
     set(`rRain_${idx}`, (R!=null)? R : '—');
     set(`g_${idx}`, (gamma!=null)? gamma.toFixed(4) : '—');
     set(`rFac_${idx}`, (rFac!=null)? rFac.toFixed(3) : '—');
-    set(`fm_${idx}`, (fmShown!=null)? fmShown.toFixed(3) : '—');
+    set(`fm_${idx}`, (fmShown!=null)? fmShown.toFixed(3) : '—');       // FM_MIN mostrado
+    const miEl = document.getElementById(`mi_${idx}`);
+    if (miEl) miEl.textContent = (maxInterf!=null)? maxInterf.toFixed(3) : '—';
   });
 }
+
 
 
