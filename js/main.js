@@ -663,6 +663,20 @@ function getFreqGHzFromBand(freqBand){
   const f = parseFloat(m[1]);
   return [6,7,8,13].includes(f) ? f : null;
 }
+// Devuelve { display, calc }.
+// display: lo que se muestra en la tabla (V, H o V/H)
+// calc:    lo que se usa para k, α, γ, r, FM (H si viene V/H)
+function parsePolarization(polar){
+  const s = String(polar || '').toLowerCase();
+  const hasV = s.includes('v');
+  const hasH = s.includes('h');
+
+  if (hasV && hasH)   return { display: 'V/H', calc: 'H' };
+  if (hasH)           return { display: 'H',   calc: 'H' };
+  if (hasV)           return { display: 'V',   calc: 'V' };
+  return { display: '—', calc: null };
+}
+
 // Normaliza polarización a 'H' o 'V'
 function getPolHV(polar){
   const s = String(polar||'').toLowerCase();
@@ -771,9 +785,10 @@ function analyzeFadeMargin(){
     // Prepara metadatos por enlace (freq y pol normalizados)
     const meta = matched.map((L, idx)=> {
       const f = getFreqGHzFromBand(L.freqBand);
-      const p = getPolHV(L.polar);
-      return { idx, fGHz:f, pol:p };
+      const polInfo = parsePolarization(L.polar);
+      return { idx, fGHz: f, polDisplay: polInfo.display, polCalc: polInfo.calc };
     });
+
   
     // Render HTML con selectores (default: Zone=N, % = 0.005)
     if (els.fadeTable){
@@ -835,7 +850,7 @@ function buildFadeRowsHtml(rows, meta, defaults){
     const zone = defaults.zone;
     const pct  = defaults.pct;
 
-    const coeff = (m.fGHz && m.pol) ? (RAIN_COEFFS[m.fGHz]?.[m.pol]) : null;
+    const coeff = (m.fGHz && m.polCalc) ? (RAIN_COEFFS[m.fGHz]?.[m.polCalc]) : null;
     const R = RAIN_R[zone]?.[pct];
     const k = coeff?.k, a = coeff?.a;
     const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
@@ -877,7 +892,7 @@ function buildFadeRowsHtml(rows, meta, defaults){
             <option value="0.001">0.001%</option>
           </select>
         </td>
-        <td>${escapeHtml(m.pol || '—')}</td>
+        <td>${escapeHtml(m.polDisplay || '—')}</td>
         <td>${m.fGHz ?? '—'}</td>
         <td id="k_${i}">${(k!=null)? k.toFixed(6) : '—'}</td>
         <td id="a_${i}">${(a!=null)? a.toFixed(4) : '—'}</td>
@@ -1041,7 +1056,7 @@ if (els.fadeTable){
     const L    = (window.__fadeRows?.rows || [])[idx];
     if (!meta || !L) return;
 
-    const coeff = (meta.fGHz && meta.pol) ? (RAIN_COEFFS[meta.fGHz]?.[meta.pol]) : null;
+    const coeff = (meta.fGHz && meta.polCalc) ? (RAIN_COEFFS[meta.fGHz]?.[meta.polCalc]) : null;
     const R = RAIN_R[zone]?.[pct];
     const k = coeff?.k;
     const a = coeff?.a;
