@@ -15,7 +15,6 @@ const els = {
   stationsRow: document.getElementById('stationsRow'),
   addStation: document.getElementById('addStation'),
   previewBtn: document.getElementById('previewBtn'),
-  pdfBtn: document.getElementById('pdfBtn'),
   status: document.getElementById('status'),
   cnv: document.getElementById('cnv'),
   sitesList: document.getElementById('sites_list'),
@@ -236,7 +235,7 @@ async function loadFile(file, datasetIdx){
   // habilitar UI
   document.getElementById('q1').disabled = false;
   document.getElementById('q2').disabled = false;
-  els.previewBtn.disabled = false; els.pdfBtn.disabled = false; els.freqFilter.disabled = false;
+  els.previewBtn.disabled = false; els.freqFilter.disabled = false;
   updateAddStationState();
 
   setStatus(`Cargado archivo ${datasetIdx+1}: ${rows.length} filas (total enlaces: ${links.length})`,'ok');
@@ -548,7 +547,6 @@ els.previewBtn.addEventListener('click', ()=>{
   const sub = buildHeaderSub(filterLinksBySites().length, (els.freqFilter?.value || 'todos'));
   openModal(dataUrl, sub);
 });
-els.pdfBtn.addEventListener('click', ()=>{ if(drawDesignToCanvas()) exportPDF(); });
 els.dlImg.addEventListener('click', ()=>{
   const c = els.cnv;
   if(!lastPreviewAt) lastPreviewAt = new Date();
