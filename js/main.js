@@ -669,6 +669,20 @@ function computeGamma(freqGHz, polHV, zonePN, pctStr){
   return c.k * Math.pow(R, c.a);
 }
 
+// Convierte un valor textual a número en km (acepta "12,5", "12.5", "12 km")
+function toNumberKm(x){
+  const n = parseFloat(String(x).replace(',', '.').replace(/[^0-9.]+/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+// r = 1 / ( 0.477 d^0.633 R^(0.073·α) f^0.123 - 10.579 (1 - exp(-0.024 d)) )
+function computeRFactor(fGHz, dKm, R, alpha){
+  if(!fGHz || !dKm || !R || alpha==null) return null;
+  const denom = 0.477*Math.pow(dKm,0.633) * Math.pow(R, 0.073*alpha) * Math.pow(fGHz,0.123)
+              - 10.579*(1 - Math.exp(-0.024*dKm));
+  if (denom <= 0) return null;
+  return 1 / denom;
+}
 
 // Ejemplos de uso:
 // setPreviewSize('1400px', '800px');
@@ -801,32 +815,46 @@ function buildFadeRowsHtml(rows, meta, defaults){
           <th>α</th>
           <th>R (mm/h)</th>
           <th>γ (dB/km)</th>
+          <th>r</th>
+          <th>FM_Max (dB)</th>
         </tr>
       </thead>`;
   
     const body = rows.map((L, i) => {
-      const m = meta[i] || {};
-      const zone = defaults.zone;                 // 'N'
-      const pct  = defaults.pct;                  // '0.005'
+      const m   = meta[i] || {};
+      const zone = defaults.zone;   // 'N'
+      const pct  = defaults.pct;    // '0.005'
+  
+      // Coeficientes y R
       const coeff = (m.fGHz && m.pol) ? (RAIN_COEFFS[m.fGHz]?.[m.pol]) : null;
       const R = RAIN_R[zone]?.[pct];
       const k = coeff?.k;
       const a = coeff?.a;
+  
+      // γ
       const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
+  
+      // d (num para cálculo) + etiqueta con 1 decimal para mostrar
+      const dNum = toNumberKm(L.hopLength);
+      const hopLabel = (dNum!=null) ? dNum.toFixed(1) : String(L.hopLength || '—');
+  
+      // r y FM_Max
+      const rFac  = (gamma!=null && dNum!=null && a!=null && R!=null && m.fGHz)
+        ? computeRFactor(m.fGHz, dNum, R, a)
+        : null;
+      const fmMax = (gamma!=null && dNum!=null && rFac!=null)
+        ? (gamma * dNum * rFac)
+        : null;
   
       // Info del enlace para el encabezado de fila
       const linkLabel = `${L.siteA} ↔ ${L.siteB}`;
       const bandLabel = String(L.freqBand||'—');
-      // Mostrar hop length con 1 decimal (si es número válido)
-      const hopNum = parseFloat(L.hopLength);
-      const hopLabel = Number.isFinite(hopNum) ? hopNum.toFixed(1) : String(L.hopLength || '—');
-
   
       return `
         <tr>
           <td class="mono">
             <div><strong>${escapeHtml(linkLabel)}</strong></div>
-            <div style="font-size:12px;color:#555">Banda: ${escapeHtml(bandLabel)} · Hop: ${escapeHtml(hopLabel)}</div>
+            <div style="font-size:12px;color:#555">Banda: ${escapeHtml(bandLabel)} · Hop: ${escapeHtml(hopLabel)} km</div>
           </td>
           <td>
             <select class="zoneSel" data-idx="${i}">
@@ -845,40 +873,16 @@ function buildFadeRowsHtml(rows, meta, defaults){
           <td>${m.fGHz ?? '—'}</td>
           <td id="k_${i}">${(k!=null)? k.toFixed(6) : '—'}</td>
           <td id="a_${i}">${(a!=null)? a.toFixed(4) : '—'}</td>
-          <td id="r_${i}">${(R!=null)? R : '—'}</td>
+          <td id="rRain_${i}">${(R!=null)? R : '—'}</td>
           <td id="g_${i}">${(gamma!=null)? gamma.toFixed(4) : '—'}</td>
+          <td id="rFac_${i}">${(rFac!=null)? rFac.toFixed(3) : '—'}</td>
+          <td id="fm_${i}">${(fmMax!=null)? fmMax.toFixed(3) : '—'}</td>
         </tr>`;
     }).join('');
   
     return `<table class="table">${head}<tbody>${body}</tbody></table>`;
   }
   
-  // Delegado de eventos para recálculo al cambiar Zone o % tiempo
-  if (els.fadeTable){
-    els.fadeTable.addEventListener('change', (e)=>{
-      const t = e.target;
-      if (!t.classList.contains('zoneSel') && !t.classList.contains('pctSel')) return;
-      const idx = +t.dataset.idx;
-      const zone = document.querySelector(`select.zoneSel[data-idx="${idx}"]`)?.value || 'N';
-      const pct  = document.querySelector(`select.pctSel[data-idx="${idx}"]`)?.value  || '0.005';
-  
-      const meta = (window.__fadeRows?.meta || [])[idx];
-      if (!meta) return;
-  
-      const coeff = (meta.fGHz && meta.pol) ? (RAIN_COEFFS[meta.fGHz]?.[meta.pol]) : null;
-      const R = RAIN_R[zone]?.[pct];
-      const k = coeff?.k;
-      const a = coeff?.a;
-      const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
-  
-      const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.textContent = val; };
-  
-      set(`k_${idx}`, (k!=null)? k.toFixed(6) : '—');
-      set(`a_${idx}`, (a!=null)? a.toFixed(4) : '—');
-      set(`r_${idx}`, (R!=null)? R : '—');
-      set(`g_${idx}`, (gamma!=null)? gamma.toFixed(4) : '—');
-    });
-  }
 
 
 /** Exporta el resultado mostrado a CSV */
@@ -944,6 +948,43 @@ function exportPDF(){
   doc.setFontSize(10); doc.setTextColor(0,0,0);
   doc.text(`Generado: ${lastPreviewAt.toLocaleString()}`, x, y + drawH + 16);
   doc.save('diseno_enlaces.pdf');
+}
+if (els.fadeTable){
+  els.fadeTable.addEventListener('change', (e)=>{
+    const t = e.target;
+    if (!t.classList.contains('zoneSel') && !t.classList.contains('pctSel')) return;
+
+    const idx  = +t.dataset.idx;
+    const zone = document.querySelector(`select.zoneSel[data-idx="${idx}"]`)?.value || 'N';
+    const pct  = document.querySelector(`select.pctSel[data-idx="${idx}"]`)?.value  || '0.005';
+
+    const meta = (window.__fadeRows?.meta || [])[idx];
+    const L    = (window.__fadeRows?.rows || [])[idx];
+    if (!meta || !L) return;
+
+    const coeff = (meta.fGHz && meta.pol) ? (RAIN_COEFFS[meta.fGHz]?.[meta.pol]) : null;
+    const R = RAIN_R[zone]?.[pct];
+    const k = coeff?.k;
+    const a = coeff?.a;
+    const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
+
+    const dNum = toNumberKm(L.hopLength);
+    const rFac = (gamma!=null && dNum!=null && a!=null && R!=null && meta.fGHz)
+      ? computeRFactor(meta.fGHz, dNum, R, a)
+      : null;
+    const fmMax = (gamma!=null && dNum!=null && rFac!=null)
+      ? (gamma * dNum * rFac)
+      : null;
+
+    const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.textContent = val; };
+
+    set(`k_${idx}`, (k!=null)? k.toFixed(6) : '—');
+    set(`a_${idx}`, (a!=null)? a.toFixed(4) : '—');
+    set(`rRain_${idx}`, (R!=null)? R : '—');
+    set(`g_${idx}`, (gamma!=null)? gamma.toFixed(4) : '—');
+    set(`rFac_${idx}`, (rFac!=null)? rFac.toFixed(3) : '—');
+    set(`fm_${idx}`, (fmMax!=null)? fmMax.toFixed(3) : '—');
+  });
 }
 
 
