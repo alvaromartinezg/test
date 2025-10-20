@@ -327,10 +327,7 @@ function normalizeLinks(rows, datasetIdx){
     const freqArr  = r[m('frequency arrangement')] ?? r[m('frequency  arrangement')] ?? '';
     const hopLen =
       r[m('hop length')] ??
-      r[m('hoplength')] ??
-      r[m('distance (km)')] ??
-      r[m('link length')] ??
-      r[m('distance')] ??
+      r[m('Hop length (Km)')] ??
       '';
 
 
