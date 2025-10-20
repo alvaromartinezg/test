@@ -1,64 +1,92 @@
 :root{
   --blue:#00A3E0; --ink:#111; --line:#9ca3af;
-  --s1:#e11d48; --s2:#d946ef; --s3:#16a34a; --s4:#f59e0b; --s5:#7c3aed; --s6:#14b8a6;
+  --s1:#e11d48; --s2:#d946ef; --s3:#16a34a;
+  --s4:#f59e0b; --s5:#7c3aed; --s6:#14b8a6;
 }
-
-/* Base */
 *{box-sizing:border-box}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;margin:0;background:#f6f7f8;color:#111}
 header{display:flex;gap:12px;align-items:center;padding:14px 16px;background:linear-gradient(90deg,#0a78b3,#065a87);color:#fff}
 header h1{font-size:20px;margin:0}
 main{max-width:1200px;margin:24px auto;padding:0 16px}
+/* ... y continúa hasta el final del bloque modal */
 .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,.05);padding:16px;margin-bottom:16px}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-label{font-weight:600;font-size:14px}
-input[type="file"], input[type="text"], select, button{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px}
-button{border:none;background:#111;color:#fff;font-weight:600;cursor:pointer}
-button.primary{background:var(--blue)}
-button.ghost{background:#fff;color:#111;border:1px solid #d1d5db}
-button.btn-sm{padding:6px 8px;font-size:12px;border-radius:8px}
-button:disabled{opacity:.6;cursor:not-allowed}
-.pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px}
-.pill.ok{background:#dcfce7;color:#166534}
-.pill.bad{background:#fee2e2;color:#991b1b}
-.kpi{display:flex;gap:10px;flex-wrap:wrap}
-canvas{display:none}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  label{font-weight:600;font-size:14px}
+  input[type="file"], input[type="text"], select, button{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px}
+  button{border:none;background:#111;color:#fff;font-weight:600;cursor:pointer}
+  button.primary{background:var(--blue)}
+  button.ghost{background:#fff;color:#111;border:1px solid #d1d5db}
+  button.btn-sm{padding:6px 8px;font-size:12px;border-radius:8px}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px}
+  .pill.ok{background:#dcfce7;color:#166534}
+  .pill.bad{background:#fee2e2;color:#991b1b}
+  .kpi{display:flex;gap:10px;flex-wrap:wrap}
+  canvas{display:none}
 
-/* Modal */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:24px;z-index:999}
-.modal.open{display:flex}
-.modal-card{position:relative;background:#fff;border-radius:14px;max-width:98vw;max-height:96vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.35)}
-.modal-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e5e7eb;background:#fff}
-.modal-title{display:flex;flex-direction:column}
-.modal-title h2{margin:0;font-size:18px}
-.modal-sub{font-size:12px;color:#374151}
-.modal-actions{display:flex;gap:6px;align-items:center}
-.close-x{
-  display:flex; align-items:center; justify-content:center;
-  width:28px; height:28px; border-radius:8px;
-  border:1px solid #fecaca; background:#fee2e2; color:#b91c1c;
-  font-weight:900; font-size:16px; line-height:1; cursor:pointer; transition:all .2s;
-}
-.close-x:hover{ background:#fca5a5; border-color:#f87171; }
-
-/* Modal body + imagen (asegura tamaño visible) */
-.modal-body{ flex:1; position:relative; background:#f8fafc; overflow:hidden; min-height:70vh; }
-.zoom-wrap{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; cursor:grab; }
-.zoom-wrap.grabbing{ cursor:grabbing; }
-.zoom-img{
-  transform-origin:center center; user-select:none; -webkit-user-drag:none;
-  max-width:100%; max-height:100%; object-fit:contain; display:block;
-  visibility:hidden;
-}
-
+  /* Modal */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:24px;z-index:999}
+  .modal.open{display:flex}
+  .modal-card{position:relative;background:#fff;border-radius:14px;max-width:98vw;max-height:96vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e5e7eb;background:#fff}
+  .modal-title{display:flex;flex-direction:column}
+  .modal-title h2{margin:0;font-size:18px}
+  .modal-sub{font-size:12px;color:#374151}
+  .modal-actions{display:flex;gap:6px;align-items:center}
+  .close-x{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:28px;
+    height:28px;
+    border-radius:8px;
+    border:1px solid #fecaca;
+    background:#fee2e2;
+    color:#b91c1c;
+    font-weight:900;
+    font-size:16px;
+    line-height:1;
+    cursor:pointer;
+    transition:all .2s;
+  }
+  .close-x:hover{
+    background:#fca5a5;
+    border-color:#f87171;
+  }
+  
+  /* Modal body + imagen (asegura tamaño visible) */
+  .modal-body{
+    flex:1;
+    position:relative;
+    background:#f8fafc;
+    overflow:hidden;
+    min-height:70vh;          /* 👈 da altura real al área de preview */
+  }
+  .zoom-wrap{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    cursor:grab;
+  }
+  .zoom-wrap.grabbing{ cursor:grabbing; }
+  /* 👇 empieza oculto hasta que onload dispare la visibilidad */
+  .zoom-img{
+    transform-origin:center center;
+    user-select:none; -webkit-user-drag:none;
+    max-width:100%; max-height:100%;
+    object-fit:contain; display:block;
+    visibility:hidden;          /* 👈 se vuelve visible en onload */
+  }
 /* === CONTROL DE TAMAÑO DE LA VENTANA EMERGENTE === */
 :root{
+  /* Ajusta aquí: usa px o vw/vh */
   --modal-w: 95vw;
   --modal-h: 90vh;
 }
 
 /* Si el padding te achica la ventana, bájalo o quítalo */
-.modal{ padding: 8px; }
+.modal{
+  padding: 8px;  /* antes 24px; ajusta a 0 si quieres el máximo */
+}
 
 /* Fuerza ancho/alto y elimina los límites previos */
 .modal .modal-card{
