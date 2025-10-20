@@ -997,6 +997,14 @@ els.copyImg.addEventListener('click', async ()=>{
 });
 els.dlPdf.addEventListener('click', ()=>{ if(drawDesignToCanvas()) exportPDF(); });
 
+// Aplica el factor p a FM_Max si pct es 0.005 o 0.001 y hay factor para esa frecuencia
+function applyPFactorToFM(fmMax, fGHz, pctStr){
+  if (fmMax == null || !fGHz) return fmMax;
+  if (pctStr !== '0.005' && pctStr !== '0.001') return fmMax;
+  const fac = FM_P_FACTORS[pctStr]?.[fGHz];
+  return (fac != null) ? (fmMax * fac) : fmMax;
+}
+
 /* ===== Exportar PDF = imagen del canvas (copia fiel) ===== */
 function exportPDF(){
   const { jsPDF } = window.jspdf;
