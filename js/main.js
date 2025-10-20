@@ -32,10 +32,15 @@ const els = {
   dlImg: document.getElementById('dlImg'),
   dlPdf: document.getElementById('dlPdf'),
   copyImg: document.getElementById('copyImg'),
+
   leadersToggle: document.getElementById('leadersToggle'),
+  
+
 };
 
-els.leadersToggle.addEventListener('change', ()=>{ DRAW_LEADERS = els.leadersToggle.checked; });
+els.leadersToggle.addEventListener('change', ()=>{
+  DRAW_LEADERS = els.leadersToggle.checked;
+});
 
 function escapeHtml(s){
   const map = {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"};
@@ -60,24 +65,33 @@ function getFontPx(ctx){
 function lineBBox(ctx, text, x, y){
   const w = ctx.measureText(text).width;
   const fs = getFontPx(ctx);
-  const h  = Math.ceil(fs * 1.3);
+  const h  = Math.ceil(fs * 1.3);   // altura efectiva del rótulo
   return { x1:x-3, y1:y-h, x2:x+w+3, y2:y+4 };
 }
 
-// Colocar dos líneas evitando colisiones, eligiendo la posición más cercana al ancla
+
+// Intenta colocar 2 líneas (top1 y top2) evitando colisión con 'placed'
+// Coloca 2 líneas (top1 y top2) escogiendo la posición válida MÁS CERCANA al ancla
 function tryPlaceTwoLines(ctx, top1, top2, anchorX, anchorY, placed){
   const gap = Math.max(14, Math.round(getFontPx(ctx) * 1.2));
+
+  // Candidatos simétricos: arriba, abajo y laterales (varias distancias)
   const candidates = [
+    // cerca
     [  6, -26],[  6,   8],
+    // un poco más lejos
     [  6, -42],[  6,  24],
+    // aún más lejos
     [  6, -58],[  6,  40],
     [  6, -74],[  6,  56],
     [  6, -90],[  6,  72],
+    // laterales con ligera subida/bajada
     [ 18, -26],[ -18, -26],[ 18,   8],[ -18,   8],
     [ 28, -26],[ -28, -26],[ 28,   8],[ -28,   8],
   ];
 
-  let best = null;
+  let best = null; // { x, y1, y2, bb, cx, cy, dist }
+
   for (const [dx, dy] of candidates){
     const x  = anchorX + dx;
     const y1 = anchorY + dy;
@@ -88,9 +102,11 @@ function tryPlaceTwoLines(ctx, top1, top2, anchorX, anchorY, placed){
     const bb = { x1:Math.min(b1.x1,b2.x1), y1:Math.min(b1.y1,b2.y1),
                  x2:Math.max(b1.x2,b2.x2), y2:Math.max(b1.y2,b2.y2) };
 
+    // si colisiona con algo ya colocado, descartar
     const collide = placed.some(p => !(p.x2<bb.x1 || p.x1>bb.x2 || p.y2<bb.y1 || p.y1>bb.y2));
     if (collide) continue;
 
+    // distancia desde el centro del rótulo al ancla (queremos la menor)
     const cx = (bb.x1 + bb.x2)/2, cy = (bb.y1 + bb.y2)/2;
     const dist = Math.hypot(cx - anchorX, cy - anchorY);
 
@@ -99,6 +115,7 @@ function tryPlaceTwoLines(ctx, top1, top2, anchorX, anchorY, placed){
     }
   }
 
+  // Si no se encontró ninguna posición libre, usa la primera como fallback
   if (!best){
     const [dx,dy] = candidates[0];
     const x  = anchorX + dx;
@@ -112,17 +129,19 @@ function tryPlaceTwoLines(ctx, top1, top2, anchorX, anchorY, placed){
     const dist = Math.hypot(cx - anchorX, cy - anchorY);
     best = { x, y1, y2, bb, cx, cy, dist };
   }
+
   return best;
 }
 
-// Colocar una línea (nombre estación) evitando colisiones
+
+// Intenta colocar 1 línea (nombre de estación) evitando colisión
 function tryPlaceOneLine(ctx, text, baseX, baseY, placed){
   const offsets = [
     [  0,   0],[  0, -16],[  0, 18],
     [ 14,   0],[ -14,  0],
     [ 22, -16],[ -22,-16],[ 22, 18],[ -22,18],
     [ 32,   0],[ -32,  0],[ 36, -22],[ -36,-22],[ 36, 22],[ -36,22],
-    [ 48,   0],[ -48,  0]
+    [ 48,   0],[ -48,  0]   // últimos intentos, más lejos
   ];
   for(const [dx,dy] of offsets){
     const x = baseX + dx, y = baseY + dy;
@@ -131,12 +150,13 @@ function tryPlaceOneLine(ctx, text, baseX, baseY, placed){
       return { x, y, bb };
     }
   }
+  // fallback
   const [dx,dy]=offsets[offsets.length-1];
   const x = baseX + dx, y = baseY + dy;
   return { x, y, bb: lineBBox(ctx, text, x, y) };
 }
 
-// Flecha simple
+// Dibuja una flecha simple
 function drawArrow(ctx, x1, y1, x2, y2, color='#facc15'){
   ctx.save();
   ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.5;
@@ -150,7 +170,7 @@ function drawArrow(ctx, x1, y1, x2, y2, color='#facc15'){
   ctx.restore();
 }
 
-// Rumbo/azimuth
+// Rumbo/azimuth geodésico (grados 0..360) desde p1 -> p2
 function bearing(lat1, lon1, lat2, lon2){
   const toRad = d=> d*Math.PI/180, toDeg = r=> r*180/Math.PI;
   const φ1 = toRad(lat1), φ2 = toRad(lat2);
@@ -160,44 +180,73 @@ function bearing(lat1, lon1, lat2, lon2){
   let θ = toDeg(Math.atan2(y, x));
   return (θ + 360) % 360;
 }
+
+// Diferencia mínima entre dos rumbos (0..180)
 function angleBetween(b1, b2){
   let d = Math.abs(b2 - b1) % 360;
   if (d > 180) d = 360 - d;
   return d;
 }
 
-const MAX_ADJ_ANGLE = 90;
-const EPS_DEG = 0.1;
+// Construye líneas "A-B, A-C: 20°", solo pares ADYACENTES en el orden angular
+// Construye líneas "A-B, A-C: 20°" SOLO para pares ADYACENTES por sitio.
+// - Deduplica vecinos por sitio (si hay múltiples enlaces A-B, cuenta una sola dirección).
+// - Omite ángulos ~0° (tolerancia EPS).
+// Tabla "A-B, A-C: 20°" para pares ADYACENTES por sitio.
+// - Deduplica A-B repetidos por sitio (usa el primero).
+// - Omite ángulos ~0° (EPS).
+// - includeWrap=true: considera también el par entre el último y el primero (cierre circular).
+// Ángulos entre enlaces ADYACENTES (con wrap-around) para cada sitio.
+// - Deduplica vecinos repetidos (A-B una sola vez por sitio).
+// - Omite 0° y sólo reporta ángulos <= MAX_ADJ_ANGLE.
+// - Formato: "A-B, A-C: 20°"
+const MAX_ADJ_ANGLE = 90;   // umbral pedido
+const EPS_DEG = 0.1;        // tolerancia para considerar 0°
+
 function buildAnglesTable(subset){
   const norm = s => String(s ?? '').trim();
+
+  // Mapa: site -> Map(remote -> bearing)
   const perSite = new Map();
+
   const addEdge = (site, latS, lonS, remote, latR, lonR) => {
     site = norm(site); remote = norm(remote);
-    const b = bearing(latS, lonS, latR, lonR);
+    const b = bearing(latS, lonS, latR, lonR); // 0..360
     if(!perSite.has(site)) perSite.set(site, new Map());
     const m = perSite.get(site);
-    if(!m.has(remote)) m.set(remote, b);
+    if(!m.has(remote)) m.set(remote, b); // dedup vecino
   };
+
   for(const L of subset){
     addEdge(L.siteA, L.latA, L.lonA, L.siteB, L.latB, L.lonB);
     addEdge(L.siteB, L.latB, L.lonB, L.siteA, L.latA, L.lonA);
   }
+
   const rows = [];
+
   perSite.forEach((m, site)=>{
-    const list = Array.from(m.entries()).map(([remote, b]) => ({ label: `${site}-${remote}`, b }));
+    const list = Array.from(m.entries()).map(([remote, b]) => ({
+      label: `${site}-${remote}`,
+      b
+    }));
     if(list.length < 2) return;
+
+    // Orden angular y pares ADYACENTES en círculo (wrap-around)
     list.sort((a,b)=> a.b - b.b);
     const N = list.length;
+
     for(let i=0;i<N;i++){
       const a = list[i];
-      const c = list[(i+1) % N];
-      let ang = angleBetween(a.b, c.b);
-      if(ang <= EPS_DEG) continue;
+      const c = list[(i+1) % N];               // siguiente en el círculo
+      let ang = angleBetween(a.b, c.b);        // 0..180 (mínimo)
+      if(ang <= EPS_DEG) continue;             // descarta 0°
       if(ang <= MAX_ADJ_ANGLE){
         rows.push(`${a.label}, ${c.label}: ${Math.round(ang)}°`);
       }
     }
   });
+
+  // (Opcional) ordena para que sea más legible: por sitio y ángulo
   rows.sort((r1, r2)=>{
     const [s1] = r1.split('-',1);
     const [s2] = r2.split('-',1);
@@ -206,10 +255,14 @@ function buildAnglesTable(subset){
     const a2 = parseInt(r2.split(':').pop(),10);
     return a1 - a2;
   });
+
   return rows;
 }
 
-const LABEL_LEADER_THRESHOLD = 46;
+
+// Umbral para decidir si un rótulo está "lejos" y requiere flecha (FLECHA DE SENSIBILIDAD, FLECHA DE DISTANCIA)
+const LABEL_LEADER_THRESHOLD = 46; // px (ajústalo si quieres)
+
 
 /* ===== Carga uno por uno ===== */
 els.file1.addEventListener('change', ()=> loadFile(els.file1.files[0], 0));
@@ -293,7 +346,7 @@ function project(pt, bb, w, h, pad){
   const lonSpan = (bb.maxLon - bb.minLon) || 1e-6;
   const latSpan = (bb.maxLat - bb.minLat) || 1e-6;
   const x = pad + (pt.lon - bb.minLon) / lonSpan * (w - 2*pad);
-  const y = pad + (bb.maxLat - pt.lat) / latSpan * (h - 2*pad);
+  const y = pad + (bb.maxLat - pt.lat) / latSpan * (h - 2*pad); // 👈 bb, no bbox
   return {x,y};
 }
 
@@ -301,11 +354,13 @@ function filterLinksBySites(){
   const stations = getActiveStations().map(s=>s.name).filter(Boolean);
   const bandSel = (els.freqFilter?.value || 'todos');
 
+  // 1) Filtro por banda (aplica a TODOS los enlaces de ambos datasets)
   let subset = links.filter(L => {
     if (bandSel === 'todos') return true;
     return normBand(L.freqBand) === normBand(bandSel);
   });
 
+  // 2) Filtro por estaciones (si hay)
   if(!stations.length) return subset;
   return subset.filter(L => stations.some(s => eq(L.siteA,s) || eq(L.siteB,s)));
 }
@@ -347,7 +402,7 @@ els.addStation.addEventListener('click', ()=>{
   updateAddStationState();
 });
 
-/* ===== Dibujo a Canvas ===== */
+/* ===== Dibujo a Canvas (idéntico a lo que se exporta) ===== */
 function drawDesignToCanvas(){
   const subset = filterLinksBySites();
   if(!subset.length){ setStatus('Sin coincidencias para esos sitios','bad'); return null; }
@@ -403,8 +458,9 @@ function drawDesignToCanvas(){
       ctx.moveTo(Ax,Ay); ctx.lineTo(Bx,By); ctx.stroke();
       ctx.setLineDash([]);
 
-      const t = (i+0.5)/arr.length;
-      const px = A.x + vx*t, py = A.y + vy*t;
+     // === RÓTULOS DEL ENLACE: anti-colisión + flecha si está lejos ===
+      const t = (i+0.5)/arr.length;              // posición proporcional sobre la línea
+      const px = A.x + vx*t, py = A.y + vy*t;    // punto ancla sobre el vector
 
       const top1 = `${L.freqBand} - ${L.chSpacing} - ${L.chNo}`;
       const top2Raw = `${L.config} - ${L.polar} - ${L.freqArr}`;
@@ -416,20 +472,23 @@ function drawDesignToCanvas(){
       ctx.fillStyle = '#00A3E0';
       ctx.fillText(top1, spot.x, spot.y1);
 
-      // Línea 2 con L-H coloreado por estación
+      // Línea 2 completa (prefix + L-H coloreado por estación)
       paintArrangementCanvas(ctx, `${L.config} - ${L.polar} - ${L.freqArr}`, spot.x, spot.y2, L);
 
+      // Registrar el bbox combinado para evitar solapes posteriores
       placed.push(spot.bb);
 
+      // Si el rótulo quedó "lejos" de su vector, dibuja flecha amarilla hacia el punto ancla (px,py)
       if (DRAW_LEADERS && spot.dist > LABEL_LEADER_THRESHOLD){
         const fromX = Math.max(Math.min(px, spot.bb.x2), spot.bb.x1);
         const fromY = Math.max(Math.min(py, spot.bb.y2), spot.bb.y1);
         drawArrow(ctx, fromX, fromY, px, py, '#facc15');
       }
+
     });
   });
 
-  // puntos + nombres
+  // puntos + nombres (colores según estaciones) — USAR el 'nodes' ya creado
   const act = getActiveStations();
   ctx.font = 'bold 13px system-ui';
   nodes.forEach(n=>{
@@ -441,45 +500,53 @@ function drawDesignToCanvas(){
     const offY = (v.vy>=0 ? -10 : 18);
     const match = act.find(s=> s.name && eq(s.name, n.name));
     ctx.fillStyle = match ? match.colorHex : '#0a78b3';
+    // nombre de estación con anti-colisión
+    ctx.font = 'bold 13px system-ui';
     const name = n.name;
     const baseX = p.x + offX;
     const baseY = p.y + offY;
     const spotName = tryPlaceOneLine(ctx, name, baseX, baseY, placed);
+
+    // color según estación activa
     ctx.fillStyle = match ? match.colorHex : '#0a78b3';
     ctx.fillText(name, spotName.x, spotName.y);
+
+    // guarda bbox para que no lo pisen otros rótulos
     placed.push(spotName.bb);
+
   });
-
-  // Tabla de ángulos (≤90°)
-  const angleRows = buildAnglesTable(subset);
-  if(angleRows.length){
-    ctx.save();
-    const left = 120, top = H - 110, lineH = 16;
-    ctx.fillStyle = '#000';
-    ctx.font = '600 13px system-ui';
-    ctx.fillText('Tabla ángulos (≤90°):', left, top);
-
-    ctx.font = '12px system-ui';
-    const maxPerCol = Math.ceil(angleRows.length / 2);
-    for(let i=0;i<angleRows.length;i++){
-      const col = (i < maxPerCol) ? 0 : 1;
-      const row = (i < maxPerCol) ? i : i - maxPerCol;
-      const x = left + col*520;
-      const y = top + 6 + (row+1)*lineH;
-      ctx.fillText(angleRows[i], x, y);
-    }
-    ctx.restore();
-  }
 
   // marco
   ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1;
+  // --- Tabla de ángulos de enlaces aledaños ---
+  const angleRows = buildAnglesTable(subset);
+if(angleRows.length){
+  ctx.save();
+  const left = 120, top = H - 110, lineH = 16;
+  ctx.fillStyle = '#000';
+  ctx.font = '600 13px system-ui';
+  ctx.fillText('Tabla ángulos (≤90°):', left, top);
+
+  ctx.font = '12px system-ui';
+  const maxPerCol = Math.ceil(angleRows.length / 2);
+  for(let i=0;i<angleRows.length;i++){
+    const col = (i < maxPerCol) ? 0 : 1;
+    const row = (i < maxPerCol) ? i : i - maxPerCol;
+    const x = left + col*520;
+    const y = top + 6 + (row+1)*lineH;
+    ctx.fillText(angleRows[i], x, y);
+  }
+  ctx.restore();
+}
+
+
   ctx.strokeRect(70, 80, W - 140, H - 160);
 
   lastPreviewAt = new Date();
   return c.toDataURL('image/png');
 }
 
-// pinta "... - L-H", coloreando L y H por estaciones activas
+// pinta "... - L-H", coloreando L (Site A) y H (Site B) por estaciones activas
 function paintArrangementCanvas(ctx, full, x, y, L){
   const parts = full.split(' - ');
   if(parts.length < 3){ ctx.fillStyle = '#00A3E0'; ctx.fillText(full, x, y); return; }
@@ -499,37 +566,59 @@ function paintArrangementCanvas(ctx, full, x, y, L){
   ctx.fillText(right || '', cx, y);
 }
 
-/* ===== Modal, Zoom & Pan ===== */
+/* ===== Modal, Zoom & Pan (arreglado) ===== */
 let zoom = 1, offsetX = 0, offsetY = 0, dragging = false, startX=0, startY=0;
 function openModal(dataUrl, subText){
+  // resetea zoom/pos y oculta la imagen mientras carga
   zoom = 1; offsetX = 0; offsetY = 0; applyTransform();
   els.previewImg.style.visibility = 'hidden';
+
+  // bust de caché para garantizar el onload
   const src = dataUrl + (dataUrl.startsWith('data:') ? '' : `?t=${Date.now()}`);
+
   els.previewImg.onload = () => {
+    // ahora sí, mostrar imagen y modal
     els.previewImg.style.visibility = 'visible';
     els.modalSub.textContent = subText || '';
     els.modal.classList.add('open');
   };
+
+  // importante: limpiar src primero para asegurar que onload dispare siempre
   els.previewImg.src = '';
   els.previewImg.src = src;
 }
+
+// Cambia el tamaño de la ventana emergente por código
 function setPreviewSize(widthValue, heightValue){
   document.documentElement.style.setProperty('--modal-w', widthValue);
   document.documentElement.style.setProperty('--modal-h', heightValue);
 }
+
+
+
+// Normaliza "Frequency Band" para comparación robusta.
+// Ej: " 7-U " -> "7U", "13 " -> "13"
 function normBand(v){
   return String(v ?? '')
     .toUpperCase()
-    .replace(/\s+/g, '')
-    .replace(/[^0-9A-Z]/g, '');
+    .replace(/\s+/g, '')       // quita espacios
+    .replace(/[^0-9A-Z]/g, ''); // quita guiones u otros símbolos
 }
+
+
+// Ejemplos de uso:
+// setPreviewSize('1400px', '800px');
+// setPreviewSize('100vw', '100vh');  // pantalla completa
+
 function applyTransform(){
   els.previewImg.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${zoom})`;
 }
-els.closeModalX.addEventListener('click', ()=> els.modal.classList.remove('open'));
+document.getElementById('closeModalX').addEventListener('click', ()=> els.modal.classList.remove('open'));
+
 els.zoomIn.addEventListener('click', ()=>{ zoom = Math.min(zoom*1.2, 8); applyTransform(); });
 els.zoomOut.addEventListener('click', ()=>{ zoom = Math.max(zoom/1.2, 0.2); applyTransform(); });
 els.zoomReset.addEventListener('click', ()=>{ zoom=1; offsetX=0; offsetY=0; applyTransform(); });
+
 els.zoomWrap.addEventListener('wheel', (e)=>{
   e.preventDefault();
   const delta = e.deltaY<0 ? 1.15 : 1/1.15;
@@ -541,12 +630,13 @@ window.addEventListener('mouseup', ()=>{ dragging=false; els.zoomWrap.classList.
 window.addEventListener('mousemove', (e)=>{ if(!dragging) return; offsetX = e.clientX - startX; offsetY = e.clientY - startY; applyTransform(); });
 
 /* ===== Preview / Export ===== */
-els.previewBtn.addEventListener('click', ()=>{
+document.getElementById('previewBtn').addEventListener('click', ()=>{
   const dataUrl = drawDesignToCanvas();
   if(!dataUrl){ return; }
   const sub = buildHeaderSub(filterLinksBySites().length, (els.freqFilter?.value || 'todos'));
   openModal(dataUrl, sub);
 });
+
 els.dlImg.addEventListener('click', ()=>{
   const c = els.cnv;
   if(!lastPreviewAt) lastPreviewAt = new Date();
@@ -567,14 +657,15 @@ els.copyImg.addEventListener('click', async ()=>{
 });
 els.dlPdf.addEventListener('click', ()=>{ if(drawDesignToCanvas()) exportPDF(); });
 
-/* ===== Exportar PDF ===== */
+/* ===== Exportar PDF = imagen del canvas (copia fiel) ===== */
 function exportPDF(){
   const { jsPDF } = window.jspdf;
   const c = els.cnv;
   const doc = new jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
-  const pad = 20;
-  const scale = Math.min((W-2*pad)/c.width, (H-2*pad-30)/c.height);
+  const pad = 20; // margen del lienzo en la página
+  // Escalamos el canvas para caber en la página manteniendo aspecto
+  const scale = Math.min((W-2*pad)/c.width, (H-2*pad-30)/c.height); // -30 por pie
   const drawW = c.width * scale, drawH = c.height * scale;
   const x = (W - drawW)/2, y = pad;
 
@@ -586,3 +677,5 @@ function exportPDF(){
   doc.text(`Generado: ${lastPreviewAt.toLocaleString()}`, x, y + drawH + 16);
   doc.save('diseno_enlaces.pdf');
 }
+
+
