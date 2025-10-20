@@ -1,68 +1,99 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <title>K-Microwave Studio – Diseñador MW V1</title>
 
-  <!-- CSS -->
-  <link rel="stylesheet" href="./css/styles.css">
-</head>
-<body>
-
-  <!-- Controles principales (ids usados por tu JS) -->
-  <input id="file1" type="file" accept=".xlsx,.xls" />
-  <input id="file2" type="file" accept=".xlsx,.xls" />
-
-  <select id="freqFilter">
-    <option value="todos">Todos</option>
-    <!-- agrega opciones según tus bandas -->
-  </select>
-
-  <div id="stationsRow">
-    <!-- tus inputs de estaciones con list="sites_list" -->
-    <div><label>Estación 1</label><input type="text" list="sites_list" placeholder="Ej: EST_1" /></div>
-  </div>
-  <button id="addStation" disabled>+ Estación</button>
-
-  <button id="previewBtn" disabled>Previsualizar</button>
-
-  <span id="status" class="pill" style="display:none"></span>
-  <span id="kpiRows" class="pill" style="display:none"></span>
-  <span id="kpiLinks" class="pill" style="display:none"></span>
-
-  <!-- datalist para autocompletar sitios -->
-  <datalist id="sites_list"></datalist>
-
-  <!-- Canvas para el dibujo -->
-  <canvas id="cnv" width="1600" height="900"></canvas>
-
-  <!-- Toggle de líderes -->
-  <label><input id="leadersToggle" type="checkbox"> Mostrar líderes</label>
-
-  <!-- Modal de preview -->
-  <div id="modal">
-    <div id="modalSub"></div>
-    <div id="zoomWrap">
-      <img id="previewImg" alt="preview" />
-    </div>
-    <button id="closeModalX">Cerrar</button>
-    <button id="zoomIn">+</button>
-    <button id="zoomOut">−</button>
-    <button id="zoomReset">100%</button>
-
-    <!-- Acciones dentro del modal -->
-    <button id="dlImg">Descargar PNG</button>
-    <button id="copyImg">Copiar PNG</button>
-    <button id="dlPdf">Descargar PDF</button>
-  </div>
-
-  <!-- Libs requeridas por tu JS -->
+  <!-- Librerías externas -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
-  <!-- Tu JS (usa defer para asegurar que el DOM exista) -->
-  <script src="./js/main.js" defer></script>
+  <!-- Tu CSS -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+<header><h1>Diseño enlaces microondas</h1></header>
+<main>
+  <div class="card">
+    <p><strong>Cargue sus bases de datos (Archivos de diseño)</strong></p>
+    <div class="row">
+      <div>
+        <label>Base de datos 1</label>
+        <input id="file1" type="file" accept=".xlsx,.xls" />  
+      </div>
+      <div>
+        <label>Base de datos 2</label>
+        <input id="file2" type="file" accept=".xlsx,.xls" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div>
+        <label>Seleccione la Banda de Frecuencia</label>
+        <select id="freqFilter" disabled>
+          <option value="todos">Todos</option>
+          <option value="6L">6L</option><option value="6U">6U</option>
+          <option value="7L">7L</option><option value="7U">7U</option>
+          <option value="8">8</option><option value="13">13</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="stationsRow" class="row">
+      <div><label>Estación 1</label><input id="q1" type="text" list="sites_list" placeholder="Ej: LIMA_CERRO" disabled /></div>
+      <div><label>Estación 2</label><input id="q2" type="text" list="sites_list" placeholder="Ej: CALLAO_NORTE" disabled /></div>
+    </div>
+    <datalist id="sites_list"></datalist>
+
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button id="addStation" class="ghost" disabled>Agregar estación</button>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px">
+        <input id="leadersToggle" type="checkbox" />
+        Flechas guía
+      </label>
+      <button id="previewBtn" class="primary" disabled>Generar topología física</button>
+      <span id="status" class="pill bad" style="display:none"></span>
+    </div>
+
+    <div class="kpi">
+      <span id="kpiRows" class="pill" style="display:none"></span>
+      <span id="kpiLinks" class="pill" style="display:none"></span>
+    </div>
+  </div>
+
+  <canvas id="cnv" width="1800" height="1000"></canvas>
+
+  <!-- Modal -->
+  <div id="modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="modal-title">
+          <h2>Diseño enlaces microondas</h2>
+          <div id="modalSub" class="modal-sub"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="zoomOut" class="btn-sm ghost">−</button>
+          <button id="zoomIn" class="btn-sm ghost">+</button>
+          <button id="zoomReset" class="btn-sm ghost">Reset</button>
+          <button id="copyImg" class="btn-sm ghost">Copiar</button>
+          <button id="dlImg" class="btn-sm ghost">PNG</button>
+          <button id="dlPdf" class="btn-sm primary">PDF</button>
+          <button id="closeModalX" class="close-x">×</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="zoomWrap" class="zoom-wrap">
+          <img id="previewImg" class="zoom-img" alt="Vista previa enlaces" />
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Tu JS -->
+<script src="js/main.js" defer></script>
 </body>
 </html>
