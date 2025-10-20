@@ -8,6 +8,19 @@ let DRAW_LEADERS = false;
 const MAX_STATIONS = 6;
 const stationColorsHex = ['#e11d48','#d946ef','#16a34a','#f59e0b','#7c3aed','#14b8a6'];
 
+// ===== Constantes lluvia (k, α) por frecuencia/polarización y R (mm/h) por zona/porcentaje =====
+const RAIN_COEFFS = {
+  6:  { H:{k:0.000706, a:1.5900}, V:{k:0.000488, a:1.5728} },
+  7:  { H:{k:0.001915, a:1.4810}, V:{k:0.001425, a:1.4745} },
+  8:  { H:{k:0.004115, a:1.3905}, V:{k:0.003450, a:1.3797} },
+  13: { H:{k:0.030410, a:1.1586}, V:{k:0.032660, a:1.0901} }
+};
+
+const RAIN_R = {
+  P: { '0.01':145, '0.005':174.5, '0.001':250 },
+  N: { '0.01': 95, '0.005':118.8, '0.001':180 }
+};
+
 const els = {
   file1: document.getElementById('file1'),
   file2: document.getElementById('file2'),
@@ -297,7 +310,12 @@ async function loadFile(file, datasetIdx){
   document.getElementById('q2').disabled = false;
   els.previewBtn.disabled = false;
   els.freqFilter.disabled = false;
-  if (els.fadeMarginBtn) els.fadeMarginBtn.disabled = false;
+  if (els.fadeMarginBtn){
+    const q1 = (document.getElementById('q1')?.value || '').trim();
+    const q2 = (document.getElementById('q2')?.value || '').trim();
+    els.fadeMarginBtn.disabled = !(q1 && q2);
+  }
+
 
   updateAddStationState();
 
@@ -406,8 +424,15 @@ function updateAddStationState(){
   const q1 = document.getElementById('q1').value.trim();
   const q2 = document.getElementById('q2').value.trim();
   const count = els.stationsRow.querySelectorAll('input[list="sites_list"]').length;
+
   els.addStation.disabled = !(q1 && q2) || count >= MAX_STATIONS;
+
+  // El botón de Fade Margin SOLO se habilita si hay q1 y q2
+  if (els.fadeMarginBtn){
+    els.fadeMarginBtn.disabled = !(q1 && q2);
+  }
 }
+
 els.stationsRow.addEventListener('input', updateAddStationState);
 els.addStation.addEventListener('click', ()=>{
   const count = els.stationsRow.querySelectorAll('input[list="sites_list"]').length;
@@ -622,6 +647,28 @@ function normBand(v){
     .replace(/[^0-9A-Z]/g, ''); // quita guiones u otros símbolos
 }
 
+// Extrae frecuencia en GHz del texto de banda (ej: "6L", "13-U" -> 6, 13)
+function getFreqGHzFromBand(freqBand){
+  const m = String(freqBand||'').match(/(\d+(?:\.\d+)?)/);
+  if(!m) return null;
+  const f = parseFloat(m[1]);
+  return [6,7,8,13].includes(f) ? f : null;
+}
+// Normaliza polarización a 'H' o 'V'
+function getPolHV(polar){
+  const s = String(polar||'').toLowerCase();
+  if (s.includes('v')) return 'V';
+  if (s.includes('h')) return 'H';
+  return null;
+}
+// γ = k · R^α  (devuelve número o null si falta algo)
+function computeGamma(freqGHz, polHV, zonePN, pctStr){
+  const c = RAIN_COEFFS[freqGHz]?.[polHV];
+  const R  = RAIN_R[zonePN]?.[pctStr];
+  if(!c || R==null) return null;
+  return c.k * Math.pow(R, c.a);
+}
+
 
 // Ejemplos de uso:
 // setPreviewSize('1400px', '800px');
@@ -672,10 +719,9 @@ if (els.fadeCsvBtn){
  * Omite: coordenadas y azimuth.
  */
 function analyzeFadeMargin(){
-    // Estación 1 y Estación 2: ahora son obligatorias ambas
+    // Estación 1 y Estación 2: obligatorias
     const q1 = (document.getElementById('q1')?.value || '').trim();
     const q2 = (document.getElementById('q2')?.value || '').trim();
-  
     if (!q1 || !q2){
       setStatus('Debes escribir Estación 1 y Estación 2', 'bad');
       if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
@@ -684,51 +730,42 @@ function analyzeFadeMargin(){
   
     const bandSel = (els.freqFilter?.value || 'todos');
   
-    // Debe coincidir el PAR exacto (q1,q2) en cualquier orden
-    const rows = links.filter(L => {
+    // Debe coincidir el PAR exacto (q1,q2) en cualquier orden + banda
+    const matched = links.filter(L => {
       const pairMatch =
         (eq(L.siteA, q1) && eq(L.siteB, q2)) ||
         (eq(L.siteA, q2) && eq(L.siteB, q1));
-  
-      const bandOk = (bandSel === 'todos')
-        ? true
-        : (normBand(L.freqBand) === normBand(bandSel));
-  
+      const bandOk = (bandSel === 'todos') ? true : (normBand(L.freqBand) === normBand(bandSel));
       return pairMatch && bandOk;
     });
   
-    if (!rows.length){
-      setStatus('No hay enlaces para esas condiciones', 'bad');
+    if (!matched.length){
+      setStatus('No hay enlaces que coincidan con Estación 1 y 2 para esa banda', 'bad');
       if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
       return;
     }
   
-    const cols = [
-      { key:'siteA',        label:'Site A' },
-      { key:'siteB',        label:'Site B' },
-      { key:'hopLength',    label:'Hop length' },
-      { key:'freqBand',     label:'Frequency Band' },
-      { key:'chSpacing',    label:'Channel Spacing' },
-      { key:'chNo',         label:'Channel No.' },
-      { key:'config',       label:'Configuration' },
-      { key:'polar',        label:'Polarization' },
-      { key:'freqArr',      label:'Frequency Arrangement' },
-      { key:'dataset',      label:'Dataset' },
-    ];
+    // Prepara metadatos por enlace (freq y pol normalizados)
+    const meta = matched.map((L, idx)=> {
+      const f = getFreqGHzFromBand(L.freqBand);
+      const p = getPolHV(L.polar);
+      return { idx, fGHz:f, pol:p };
+    });
   
+    // Render HTML con selectores (default: Zone=N, % = 0.005)
     if (els.fadeTable){
-      els.fadeTable.innerHTML = buildTableHtml(cols, rows);
+      els.fadeTable.innerHTML = buildFadeRowsHtml(matched, meta, {zone:'N', pct:'0.005'});
     }
-    if (els.fadeTableWrap){
-      els.fadeTableWrap.style.display = 'block';
-    }
+    if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'block';
+  
     if (els.fadeCount){
-      els.fadeCount.textContent = `Resultados: ${rows.length}`;
+      els.fadeCount.textContent = `Resultados: ${matched.length}`;
       els.fadeCount.style.display = 'inline-block';
     }
-    setStatus(`Listado de ${rows.length} enlaces`, 'ok');
+    setStatus(`Listado de ${matched.length} enlaces`, 'ok');
   
-    window.__fadeRows = { cols, rows };
+    // Guarda para recálculo/CSV
+    window.__fadeRows = { rows: matched, meta };
   }
 
 
@@ -749,6 +786,97 @@ function buildTableHtml(cols, rows){
   }</tbody>`;
   return `<table class="table">${thead}${tbody}</table>`;
 }
+
+// Tabla con selectores Zone/Pct y cálculo γ por enlace
+function buildFadeRowsHtml(rows, meta, defaults){
+    const head = `
+      <thead>
+        <tr>
+          <th>Enlace</th>
+          <th>Zone (ITU)</th>
+          <th>% tiempo</th>
+          <th>Polarización</th>
+          <th>Frecuencia (GHz)</th>
+          <th>k</th>
+          <th>α</th>
+          <th>R (mm/h)</th>
+          <th>γ (dB/km)</th>
+        </tr>
+      </thead>`;
+  
+    const body = rows.map((L, i) => {
+      const m = meta[i] || {};
+      const zone = defaults.zone;                 // 'N'
+      const pct  = defaults.pct;                  // '0.005'
+      const coeff = (m.fGHz && m.pol) ? (RAIN_COEFFS[m.fGHz]?.[m.pol]) : null;
+      const R = RAIN_R[zone]?.[pct];
+      const k = coeff?.k;
+      const a = coeff?.a;
+      const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
+  
+      // Info del enlace para el encabezado de fila
+      const linkLabel = `${L.siteA} ↔ ${L.siteB}`;
+      const bandLabel = String(L.freqBand||'—');
+      const hopLabel  = String(L.hopLength||'—');
+  
+      return `
+        <tr>
+          <td class="mono">
+            <div><strong>${escapeHtml(linkLabel)}</strong></div>
+            <div style="font-size:12px;color:#555">Banda: ${escapeHtml(bandLabel)} · Hop: ${escapeHtml(hopLabel)}</div>
+          </td>
+          <td>
+            <select class="zoneSel" data-idx="${i}">
+              <option value="P">P</option>
+              <option value="N" selected>N</option>
+            </select>
+          </td>
+          <td>
+            <select class="pctSel" data-idx="${i}">
+              <option value="0.01">0.01%</option>
+              <option value="0.005" selected>0.005%</option>
+              <option value="0.001">0.001%</option>
+            </select>
+          </td>
+          <td>${escapeHtml(m.pol || '—')}</td>
+          <td>${m.fGHz ?? '—'}</td>
+          <td id="k_${i}">${(k!=null)? k.toFixed(6) : '—'}</td>
+          <td id="a_${i}">${(a!=null)? a.toFixed(4) : '—'}</td>
+          <td id="r_${i}">${(R!=null)? R : '—'}</td>
+          <td id="g_${i}">${(gamma!=null)? gamma.toFixed(4) : '—'}</td>
+        </tr>`;
+    }).join('');
+  
+    return `<table class="table">${head}<tbody>${body}</tbody></table>`;
+  }
+  
+  // Delegado de eventos para recálculo al cambiar Zone o % tiempo
+  if (els.fadeTable){
+    els.fadeTable.addEventListener('change', (e)=>{
+      const t = e.target;
+      if (!t.classList.contains('zoneSel') && !t.classList.contains('pctSel')) return;
+      const idx = +t.dataset.idx;
+      const zone = document.querySelector(`select.zoneSel[data-idx="${idx}"]`)?.value || 'N';
+      const pct  = document.querySelector(`select.pctSel[data-idx="${idx}"]`)?.value  || '0.005';
+  
+      const meta = (window.__fadeRows?.meta || [])[idx];
+      if (!meta) return;
+  
+      const coeff = (meta.fGHz && meta.pol) ? (RAIN_COEFFS[meta.fGHz]?.[meta.pol]) : null;
+      const R = RAIN_R[zone]?.[pct];
+      const k = coeff?.k;
+      const a = coeff?.a;
+      const gamma = (k!=null && a!=null && R!=null) ? (k * Math.pow(R, a)) : null;
+  
+      const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.textContent = val; };
+  
+      set(`k_${idx}`, (k!=null)? k.toFixed(6) : '—');
+      set(`a_${idx}`, (a!=null)? a.toFixed(4) : '—');
+      set(`r_${idx}`, (R!=null)? R : '—');
+      set(`g_${idx}`, (gamma!=null)? gamma.toFixed(4) : '—');
+    });
+  }
+
 
 /** Exporta el resultado mostrado a CSV */
 function exportFadeCsv(){
