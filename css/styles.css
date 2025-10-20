@@ -17,6 +17,9 @@ main{max-width:1200px;margin:24px auto;padding:0 16px}
   button.primary{background:var(--blue)}
   button.ghost{background:#fff;color:#111;border:1px solid #d1d5db}
   button.btn-sm{padding:6px 8px;font-size:12px;border-radius:8px}
+  button.fade {
+    background:#16a34a; /* verde */
+  }
   button:disabled{opacity:.6;cursor:not-allowed}
   .pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px}
   .pill.ok{background:#dcfce7;color:#166534}
