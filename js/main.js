@@ -815,14 +815,14 @@ function buildFadeRowsHtml(rows, meta, defaults){
           <th>Enlace</th>
           <th>Zone (ITU)</th>
           <th>% tiempo</th>
-          <th>Polarization</th>
+          <th>Polar...</th>
           <th>Freq</th>
           <th>k</th>
           <th>α</th>
           <th>R (mm/h)</th>
           <th>γ (dB/km)</th>
           <th>r</th>
-          <th>FM_Max (dB)</th>
+          <th>FM_min (dB)</th>
         </tr>
       </thead>`;
   
