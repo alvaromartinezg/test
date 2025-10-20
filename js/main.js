@@ -672,60 +672,65 @@ if (els.fadeCsvBtn){
  * Omite: coordenadas y azimuth.
  */
 function analyzeFadeMargin(){
-  // Leer estaciones de los dos primeros inputs (q1, q2)
-  const q1 = (document.getElementById('q1')?.value || '').trim();
-  const q2 = (document.getElementById('q2')?.value || '').trim();
-  const stations = [...new Set([q1, q2].filter(Boolean))];
-
-  if (!stations.length){
-    setStatus('Escribe al menos una estación en Estación 1/2', 'bad');
-    if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
-    return;
+    // Estación 1 y Estación 2: ahora son obligatorias ambas
+    const q1 = (document.getElementById('q1')?.value || '').trim();
+    const q2 = (document.getElementById('q2')?.value || '').trim();
+  
+    if (!q1 || !q2){
+      setStatus('Debes escribir Estación 1 y Estación 2', 'bad');
+      if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
+      return;
+    }
+  
+    const bandSel = (els.freqFilter?.value || 'todos');
+  
+    // Debe coincidir el PAR exacto (q1,q2) en cualquier orden
+    const rows = links.filter(L => {
+      const pairMatch =
+        (eq(L.siteA, q1) && eq(L.siteB, q2)) ||
+        (eq(L.siteA, q2) && eq(L.siteB, q1));
+  
+      const bandOk = (bandSel === 'todos')
+        ? true
+        : (normBand(L.freqBand) === normBand(bandSel));
+  
+      return pairMatch && bandOk;
+    });
+  
+    if (!rows.length){
+      setStatus('No hay enlaces para esas condiciones', 'bad');
+      if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
+      return;
+    }
+  
+    const cols = [
+      { key:'siteA',        label:'Site A' },
+      { key:'siteB',        label:'Site B' },
+      { key:'hopLength',    label:'Hop length' },
+      { key:'freqBand',     label:'Frequency Band' },
+      { key:'chSpacing',    label:'Channel Spacing' },
+      { key:'chNo',         label:'Channel No.' },
+      { key:'config',       label:'Configuration' },
+      { key:'polar',        label:'Polarization' },
+      { key:'freqArr',      label:'Frequency Arrangement' },
+      { key:'dataset',      label:'Dataset' },
+    ];
+  
+    if (els.fadeTable){
+      els.fadeTable.innerHTML = buildTableHtml(cols, rows);
+    }
+    if (els.fadeTableWrap){
+      els.fadeTableWrap.style.display = 'block';
+    }
+    if (els.fadeCount){
+      els.fadeCount.textContent = `Resultados: ${rows.length}`;
+      els.fadeCount.style.display = 'inline-block';
+    }
+    setStatus(`Listado de ${rows.length} enlaces`, 'ok');
+  
+    window.__fadeRows = { cols, rows };
   }
 
-  const bandSel = (els.freqFilter?.value || 'todos');
-  const rows = links.filter(L => {
-    const touches = stations.some(s => eq(L.siteA, s) || eq(L.siteB, s));
-    const bandOk = (bandSel === 'todos') ? true : (normBand(L.freqBand) === normBand(bandSel));
-    return touches && bandOk;
-  });
-
-  if (!rows.length){
-    setStatus('No hay enlaces para esas condiciones', 'bad');
-    if (els.fadeTableWrap) els.fadeTableWrap.style.display = 'none';
-    return;
-  }
-
-  // Columnas a mostrar (sin coords/azimuth)
-  const cols = [
-    { key:'siteA',        label:'Site A' },
-    { key:'siteB',        label:'Site B' },
-    { key:'hopLength',    label:'Hop length' },
-    { key:'freqBand',     label:'Frequency Band' },
-    { key:'chSpacing',    label:'Channel Spacing' },
-    { key:'chNo',         label:'Channel No.' },
-    { key:'config',       label:'Configuration' },
-    { key:'polar',        label:'Polarization' },
-    { key:'freqArr',      label:'Frequency Arrangement' },
-    { key:'dataset',      label:'Dataset' },
-  ];
-
-  // Render tabla
-  if (els.fadeTable){
-    els.fadeTable.innerHTML = buildTableHtml(cols, rows);
-  }
-  if (els.fadeTableWrap){
-    els.fadeTableWrap.style.display = 'block';
-  }
-  if (els.fadeCount){
-    els.fadeCount.textContent = `Resultados: ${rows.length}`;
-    els.fadeCount.style.display = 'inline-block';
-  }
-  setStatus(`Listado de ${rows.length} enlaces`, 'ok');
-
-  // Guarda en memoria para CSV
-  window.__fadeRows = { cols, rows };
-}
 
 /** Devuelve HTML de una tabla simple */
 function buildTableHtml(cols, rows){
