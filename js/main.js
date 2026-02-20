@@ -1,7 +1,7 @@
 // =========================
 // CONFIG
 // =========================
-const DEFAULT_REFRESH_MS = 30_000; // 30s
+const DEFAULT_REFRESH_MS = 30_000; // 30s (ajústalo)
 
 // CSV público (solo lectura)
 const SHEET_CSV_URL =
@@ -16,8 +16,6 @@ let refreshTimer = null;
 const els = {
   btnOpenSheet: null,
   lastUpdate: null,
-  rowCount: null,
-  refreshInfo: null,
   errorBox: null,
   errorText: null,
   sections: null,
@@ -172,10 +170,7 @@ function renderSectionTable(sectionTitle, header, sectionRows) {
 function renderAllSections(rows) {
   clearSections();
 
-  if (!rows || rows.length === 0) {
-    els.rowCount.textContent = "0";
-    return;
-  }
+  if (!rows || rows.length === 0) return;
 
   const { header, groups } = groupBySection(rows);
 
@@ -184,15 +179,10 @@ function renderAllSections(rows) {
     return;
   }
 
-  let totalDataRows = 0;
-  for (const [, sectionRows] of groups) totalDataRows += sectionRows.length;
-
   for (const [sectionTitle, sectionRows] of groups) {
     const el = renderSectionTable(sectionTitle, header, sectionRows);
     els.sections.appendChild(el);
   }
-
-  els.rowCount.textContent = String(totalDataRows);
 }
 
 // =========================
@@ -224,7 +214,6 @@ async function loadSheetOnce() {
 function startAutoRefresh(ms) {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(loadSheetOnce, ms);
-  els.refreshInfo.textContent = `${Math.round(ms / 1000)}s`;
 }
 
 // =========================
@@ -233,13 +222,11 @@ function startAutoRefresh(ms) {
 document.addEventListener("DOMContentLoaded", () => {
   els.btnOpenSheet = $("btnOpenSheet");
   els.lastUpdate = $("lastUpdate");
-  els.rowCount = $("rowCount");
-  els.refreshInfo = $("refreshInfo");
   els.errorBox = $("errorBox");
   els.errorText = $("errorText");
   els.sections = $("sections");
 
-  // Asegura que el link sea el correcto aunque alguien edite el HTML
+  // asegura link editable correcto
   if (els.btnOpenSheet) els.btnOpenSheet.href = SHEET_EDIT_URL;
 
   loadSheetOnce();
