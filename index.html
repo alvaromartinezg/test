@@ -10,58 +10,61 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
 
-  <!-- CSS (reusa tu archivo tal cual) -->
   <link rel="stylesheet" href="css/styles.css" />
-
-  <!-- JS -->
   <script src="js/main.js" defer></script>
 </head>
 
 <body>
   <header class="header">
     <div class="header-left">
-      <!-- Si no tienes logo, borra esta línea -->
+      <!-- Si no tienes logo, borra esta línea o sube img/bitel_logo.png -->
       <img src="img/bitel_logo.png" alt="Logo" />
 
       <div class="title-wrap">
         <div class="title">Live Sheet Dashboard</div>
-        <div class="subtitle">Datos desde Google Sheets / Excel 365 (CSV) con auto-actualización</div>
+        <div class="subtitle">Datos desde Google Sheets (CSV) con auto-actualización</div>
       </div>
     </div>
 
-    <button id="btnRefresh" class="btn header-btn" type="button">
-      Refresh now
-    </button>
+    <!-- Derecha: enlace a sheet + fecha -->
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a
+        id="btnOpenSheet"
+        class="btn header-btn"
+        href="https://docs.google.com/spreadsheets/d/1t6MH60weJzUU30DJZ1s3tjhOtjsX1IqersjEL15roZs/edit?usp=sharing"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="text-decoration:none;"
+      >
+        Open Excel (editable)
+      </a>
+
+      <div class="muted" style="white-space:nowrap;">
+        <b>Last update:</b> <span id="lastUpdate">—</span>
+      </div>
+    </div>
   </header>
 
   <main class="container">
-    <section class="section">
-      <h2>CONFIG</h2>
-      <div class="hint">
-        Pega aquí tu URL CSV pública. La página se actualiza sola según el intervalo.
-      </div>
-
-      <div class="grid">
-        
-        <div class="linkcard" style="align-items:flex-start; flex-direction:column;">
-          <div class="name">Status</div>
-          <div class="muted" style="margin-top:8px;">
-            <div><b>Last update:</b> <span id="lastUpdate">—</span></div>
-            <div><b>Rows:</b> <span id="rowCount">0</span></div>
-            <div><b>Auto refresh:</b> <span id="refreshInfo">—</span></div>
-          </div>
-          <div id="errorBox" class="muted" style="margin-top:10px; display:none; color:#7a1f1f; font-weight:700;">
-            Error: <span id="errorText"></span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- (CONFIG eliminado) -->
 
     <section class="section">
       <h2>DATA</h2>
-      <div class="hint">Se renderiza una tabla con la primera fila como encabezado.</div>
+      <div class="hint">Secciones automáticas según Columna A (subtítulos).</div>
 
+      <!-- Aquí se renderizan las secciones dinámicas -->
       <div id="sections"></div>
+
+      <!-- Status mínimo (opcional, lo dejo por si hay error/filas) -->
+      <div class="muted" style="margin-top:12px;">
+        <div><b>Rows:</b> <span id="rowCount">0</span></div>
+        <div><b>Auto refresh:</b> <span id="refreshInfo">—</span></div>
+      </div>
+
+      <div id="errorBox" class="muted"
+           style="margin-top:10px; display:none; color:#7a1f1f; font-weight:700;">
+        Error: <span id="errorText"></span>
+      </div>
     </section>
 
     <div class="footer">© Live Sheet · Auto refresh</div>
