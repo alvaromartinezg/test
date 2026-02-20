@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Live Sheet Dashboard</title>
+  <title>Transmission Links database</title>
 
   <!-- Evitar cache -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
@@ -21,13 +21,12 @@
       <img src="img/bitel_logo.png" alt="Logo" />
 
       <div class="title-wrap">
-        <div class="title">Live Sheet Dashboard</div>
-        <div class="subtitle">Datos desde Google Sheets (CSV) con auto-actualización</div>
+        <div class="title">Transmission Links database</div>
       </div>
     </div>
 
-    <!-- Derecha: enlace a sheet + fecha -->
-    <div style="display:flex; align-items:center; gap:12px;">
+    <!-- Derecha: Edit + fecha debajo -->
+    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
       <a
         id="btnOpenSheet"
         class="btn header-btn"
@@ -36,38 +35,26 @@
         rel="noopener noreferrer"
         style="text-decoration:none;"
       >
-        Open Excel (editable)
+        Edit
       </a>
 
-      <div class="muted" style="white-space:nowrap;">
-        <b>Last update:</b> <span id="lastUpdate">—</span>
+      <div style="font-size:12px; opacity:.85; white-space:nowrap;">
+        Last update: <span id="lastUpdate">—</span>
       </div>
     </div>
   </header>
 
   <main class="container">
-    <!-- (CONFIG eliminado) -->
+    <!-- Secciones dinámicas según Columna A -->
+    <div id="sections"></div>
 
-    <section class="section">
-      <h2>DATA</h2>
-      <div class="hint">Secciones automáticas según Columna A (subtítulos).</div>
+    <!-- Solo para mostrar errores si ocurren -->
+    <div id="errorBox" class="muted"
+         style="margin-top:10px; display:none; color:#7a1f1f; font-weight:700;">
+      Error: <span id="errorText"></span>
+    </div>
 
-      <!-- Aquí se renderizan las secciones dinámicas -->
-      <div id="sections"></div>
-
-      <!-- Status mínimo (opcional, lo dejo por si hay error/filas) -->
-      <div class="muted" style="margin-top:12px;">
-        <div><b>Rows:</b> <span id="rowCount">0</span></div>
-        <div><b>Auto refresh:</b> <span id="refreshInfo">—</span></div>
-      </div>
-
-      <div id="errorBox" class="muted"
-           style="margin-top:10px; display:none; color:#7a1f1f; font-weight:700;">
-        Error: <span id="errorText"></span>
-      </div>
-    </section>
-
-    <div class="footer">© Live Sheet · Auto refresh</div>
+    <div class="footer">© Transmission Links database</div>
   </main>
 </body>
 </html>
