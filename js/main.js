@@ -1,13 +1,11 @@
 // =========================
 // CONFIG
 // =========================
-const DEFAULT_REFRESH_MS = 30_000; // 30s (ajústalo)
+const DEFAULT_REFRESH_MS = 30_000;
 
-// CSV público (solo lectura)
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1t6MH60weJzUU30DJZ1s3tjhOtjsX1IqersjEL15roZs/export?format=csv";
 
-// Link editable (solo abre en otra pestaña)
 const SHEET_EDIT_URL =
   "https://docs.google.com/spreadsheets/d/1t6MH60weJzUU30DJZ1s3tjhOtjsX1IqersjEL15roZs/edit?usp=sharing";
 
@@ -23,8 +21,37 @@ const els = {
 
 function $(id) { return document.getElementById(id); }
 
+function nowStr() {
+  return new Date().toLocaleString();
+}
+
+function withNoCache(url) {
+  const u = new URL(url);
+  u.searchParams.set("_ts", String(Date.now()));
+  return u.toString();
+}
+
 // =========================
-// CSV parser (simple + soporta comillas)
+// UI helpers (NO revienta si faltan elementos)
+// =========================
+function setError(msg) {
+  if (!els.errorBox || !els.errorText) return;
+
+  if (!msg) {
+    els.errorBox.style.display = "none";
+    els.errorText.textContent = "";
+    return;
+  }
+  els.errorBox.style.display = "block";
+  els.errorText.textContent = msg;
+}
+
+function clearSections() {
+  if (els.sections) els.sections.innerHTML = "";
+}
+
+// =========================
+// CSV parser
 // =========================
 function parseCSV(text) {
   const rows = [];
@@ -45,7 +72,6 @@ function parseCSV(text) {
     }
     if (!inQuotes && c === ",") { row.push(field); field = ""; continue; }
     if (!inQuotes && c === "\n") { row.push(field); rows.push(row); row = []; field = ""; continue; }
-
     field += c;
   }
 
@@ -59,36 +85,7 @@ function parseCSV(text) {
 }
 
 // =========================
-// UI helpers
-// =========================
-function setError(msg) {
-  if (!msg) {
-    els.errorBox.style.display = "none";
-    els.errorText.textContent = "";
-    return;
-  }
-  els.errorBox.style.display = "block";
-  els.errorText.textContent = msg;
-}
-
-function nowStr() {
-  return new Date().toLocaleString();
-}
-
-function withNoCache(url) {
-  const u = new URL(url);
-  u.searchParams.set("_ts", String(Date.now()));
-  return u.toString();
-}
-
-function clearSections() {
-  els.sections.innerHTML = "";
-}
-
-// =========================
-// Grouping + rendering
-// Col A = section title
-// B..N = table columns
+// Group by Col A -> sections
 // =========================
 function groupBySection(rows) {
   if (!rows || rows.length < 2) return { header: [], groups: new Map() };
@@ -96,14 +93,12 @@ function groupBySection(rows) {
   const header = rows[0].map(h => (h ?? "").trim());
   const data = rows.slice(1);
 
-  const groups = new Map(); // sectionTitle -> array of row arrays
-
+  const groups = new Map();
   for (const r of data) {
     const section = ((r[0] ?? "") + "").trim() || "SIN_TITULO";
     if (!groups.has(section)) groups.set(section, []);
     groups.get(section).push(r);
   }
-
   return { header, groups };
 }
 
@@ -163,25 +158,21 @@ function renderSectionTable(sectionTitle, header, sectionRows) {
 
   box.appendChild(table);
   sectionEl.appendChild(box);
-
   return sectionEl;
 }
 
 function renderAllSections(rows) {
   clearSections();
-
-  if (!rows || rows.length === 0) return;
+  if (!els.sections) return;
 
   const { header, groups } = groupBySection(rows);
-
   if (header.length < 2) {
     setError("Tu sheet debe tener al menos 2 columnas: A=Subtítulo, B..=Datos.");
     return;
   }
 
-  for (const [sectionTitle, sectionRows] of groups) {
-    const el = renderSectionTable(sectionTitle, header, sectionRows);
-    els.sections.appendChild(el);
+  for (const [title, sectionRows] of groups) {
+    els.sections.appendChild(renderSectionTable(title, header, sectionRows));
   }
 }
 
@@ -189,25 +180,22 @@ function renderAllSections(rows) {
 // Fetch & refresh
 // =========================
 async function loadSheetOnce() {
-  const url = (SHEET_CSV_URL || "").trim();
-  if (!url) {
-    setError("No se configuró SHEET_CSV_URL en main.js");
-    return;
-  }
-
   try {
     setError(null);
 
-    const res = await fetch(withNoCache(url), { method: "GET", cache: "no-store" });
+    const res = await fetch(withNoCache(SHEET_CSV_URL), { method: "GET", cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status} (${res.statusText})`);
 
     const text = await res.text();
     const rows = parseCSV(text);
 
     renderAllSections(rows);
-    els.lastUpdate.textContent = nowStr();
+
+    if (els.lastUpdate) els.lastUpdate.textContent = nowStr();
   } catch (err) {
     setError(err?.message || String(err));
+    // Aun con error, muestra “último intento”
+    if (els.lastUpdate) els.lastUpdate.textContent = nowStr();
   }
 }
 
@@ -226,7 +214,6 @@ document.addEventListener("DOMContentLoaded", () => {
   els.errorText = $("errorText");
   els.sections = $("sections");
 
-  // asegura link editable correcto
   if (els.btnOpenSheet) els.btnOpenSheet.href = SHEET_EDIT_URL;
 
   loadSheetOnce();
