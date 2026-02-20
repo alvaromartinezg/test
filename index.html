@@ -1,109 +1,75 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>K-Microwave Studio – Diseñador MW V1</title>
+  <title>Live Sheet Dashboard</title>
 
-  <!-- Librerías externas -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <!-- Evitar cache -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
 
-  <!-- Tu CSS -->
-  <link rel="stylesheet" href="css/styles.css">
+  <!-- CSS (reusa tu archivo tal cual) -->
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- JS -->
+  <script src="js/main.js" defer></script>
 </head>
 
 <body>
-<header><h1>Diseño enlaces microondas</h1></header>
-<main>
-  <div class="card">
-    <p><strong>Cargue sus bases de datos (Archivos de diseño)</strong></p>
-    <div class="row">
-      <div>
-        <label>Base de datos 1</label>
-        <input id="file1" type="file" accept=".xlsx,.xls" />  
-      </div>
-      <div>
-        <label>Base de datos 2</label>
-        <input id="file2" type="file" accept=".xlsx,.xls" />
+  <header class="header">
+    <div class="header-left">
+      <!-- Si no tienes logo, borra esta línea -->
+      <img src="img/bitel_logo.png" alt="Logo" />
+
+      <div class="title-wrap">
+        <div class="title">Live Sheet Dashboard</div>
+        <div class="subtitle">Datos desde Google Sheets / Excel 365 (CSV) con auto-actualización</div>
       </div>
     </div>
-    <div class="row" style="margin-top:8px">
-      <div>
-        <label>Seleccione la Banda de Frecuencia</label>
-        <select id="freqFilter" disabled>
-          <option value="todos">Todos</option>
-          <option value="6L">6L</option><option value="6U">6U</option>
-          <option value="7L">7L</option><option value="7U">7U</option>
-          <option value="8">8</option><option value="13">13</option>
-        </select>
+
+    <button id="btnRefresh" class="btn header-btn" type="button">
+      Refresh now
+    </button>
+  </header>
+
+  <main class="container">
+    <section class="section">
+      <h2>CONFIG</h2>
+      <div class="hint">
+        Pega aquí tu URL CSV pública. La página se actualiza sola según el intervalo.
       </div>
-    </div>
-  </div>
 
-  <div class="card">
-    <div id="stationsRow" class="row">
-      <div><label>Estación 1</label><input id="q1" type="text" list="sites_list" placeholder="Ej: LIMA_CERRO" disabled /></div>
-      <div><label>Estación 2</label><input id="q2" type="text" list="sites_list" placeholder="Ej: CALLAO_NORTE" disabled /></div>
-    </div>
-    <datalist id="sites_list"></datalist>
-
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-      <button id="addStation" class="ghost" disabled>Agregar estación</button>
-      <label style="display:flex;gap:6px;align-items:center;font-size:13px">
-        <input id="leadersToggle" type="checkbox" />
-        Flechas guía
-      </label>
-      <button id="previewBtn" class="primary" disabled>Generar topología física</button>
-      <button id="fadeMarginBtn" class="fade" disabled>Analizar Fade Margin</button>
-      <span id="status" class="pill bad" style="display:none"></span>
-    </div>
-
-    <div class="kpi">
-      <span id="kpiRows" class="pill" style="display:none"></span>
-      <span id="kpiLinks" class="pill" style="display:none"></span>
-    </div>
-    
-    <!-- Resultados de Fade Margin -->
-    <div id="fadeTableWrap" class="card" style="display:none; margin-top:12px;">
-      <h3 style="margin:6px 0 12px">Cálculo de desvanecimiento y máxima interferencia aceptada</h3>
-      <div id="fadeTable"></div>
-      <div style="display:flex; gap:8px; margin-top:10px;">
-        <span id="fadeCount" class="pill" style="display:none"></span>
-      </div>
-  </div>
-  </div>
-
-  <canvas id="cnv" width="1800" height="1000"></canvas>
-
-  <!-- Modal -->
-  <div id="modal" class="modal">
-    <div class="modal-card">
-      <div class="modal-head">
-        <div class="modal-title">
-          <h2>Diseño enlaces microondas</h2>
-          <div id="modalSub" class="modal-sub"></div>
-        </div>
-        <div class="modal-actions">
-          <button id="zoomOut" class="btn-sm ghost">−</button>
-          <button id="zoomIn" class="btn-sm ghost">+</button>
-          <button id="zoomReset" class="btn-sm ghost">Reset</button>
-          <button id="copyImg" class="btn-sm ghost">Copiar</button>
-          <button id="dlImg" class="btn-sm ghost">PNG</button>
-          <button id="dlPdf" class="btn-sm primary">PDF</button>
-          <button id="closeModalX" class="close-x">×</button>
+      <div class="grid">
+        
+        <div class="linkcard" style="align-items:flex-start; flex-direction:column;">
+          <div class="name">Status</div>
+          <div class="muted" style="margin-top:8px;">
+            <div><b>Last update:</b> <span id="lastUpdate">—</span></div>
+            <div><b>Rows:</b> <span id="rowCount">0</span></div>
+            <div><b>Auto refresh:</b> <span id="refreshInfo">—</span></div>
+          </div>
+          <div id="errorBox" class="muted" style="margin-top:10px; display:none; color:#7a1f1f; font-weight:700;">
+            Error: <span id="errorText"></span>
+          </div>
         </div>
       </div>
-      <div class="modal-body">
-        <div id="zoomWrap" class="zoom-wrap">
-          <img id="previewImg" class="zoom-img" alt="Vista previa enlaces" />
-        </div>
-      </div>
-    </div>
-  </div>
-</main>
+    </section>
 
-<!-- Tu JS -->
-<script src="js/main.js" defer></script>
+    <section class="section">
+      <h2>DATA</h2>
+      <div class="hint">Se renderiza una tabla con la primera fila como encabezado.</div>
+
+      <div style="overflow:auto; border-radius:14px; border:1px solid rgba(0,0,0,.08);">
+        <table id="dataTable" style="width:100%; border-collapse:collapse; background:#fff;">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="footer">© Live Sheet · Auto refresh</div>
+  </main>
 </body>
 </html>
