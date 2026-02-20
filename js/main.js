@@ -2,13 +2,19 @@
 // CONFIG
 // =========================
 const DEFAULT_REFRESH_MS = 30_000; // 30s
+
+// CSV público (solo lectura)
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1t6MH60weJzUU30DJZ1s3tjhOtjsX1IqersjEL15roZs/export?format=csv";
+
+// Link editable (solo abre en otra pestaña)
+const SHEET_EDIT_URL =
+  "https://docs.google.com/spreadsheets/d/1t6MH60weJzUU30DJZ1s3tjhOtjsX1IqersjEL15roZs/edit?usp=sharing";
 
 let refreshTimer = null;
 
 const els = {
-  btnRefresh: null,
+  btnOpenSheet: null,
   lastUpdate: null,
   rowCount: null,
   refreshInfo: null,
@@ -17,9 +23,7 @@ const els = {
   sections: null,
 };
 
-function $(id) {
-  return document.getElementById(id);
-}
+function $(id) { return document.getElementById(id); }
 
 // =========================
 // CSV parser (simple + soporta comillas)
@@ -37,28 +41,12 @@ function parseCSV(text) {
     const next = text[i + 1];
 
     if (c === '"') {
-      if (inQuotes && next === '"') {
-        field += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
+      if (inQuotes && next === '"') { field += '"'; i++; }
+      else { inQuotes = !inQuotes; }
       continue;
     }
-
-    if (!inQuotes && c === ",") {
-      row.push(field);
-      field = "";
-      continue;
-    }
-
-    if (!inQuotes && c === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-      continue;
-    }
+    if (!inQuotes && c === ",") { row.push(field); field = ""; continue; }
+    if (!inQuotes && c === "\n") { row.push(field); rows.push(row); row = []; field = ""; continue; }
 
     field += c;
   }
@@ -66,7 +54,7 @@ function parseCSV(text) {
   row.push(field);
   rows.push(row);
 
-  while (rows.length && rows[rows.length - 1].every((v) => (v ?? "").trim() === "")) {
+  while (rows.length && rows[rows.length - 1].every(v => (v ?? "").trim() === "")) {
     rows.pop();
   }
   return rows;
@@ -105,10 +93,9 @@ function clearSections() {
 // B..N = table columns
 // =========================
 function groupBySection(rows) {
-  // rows: array of arrays (including header)
   if (!rows || rows.length < 2) return { header: [], groups: new Map() };
 
-  const header = rows[0].map((h) => (h ?? "").trim());
+  const header = rows[0].map(h => (h ?? "").trim());
   const data = rows.slice(1);
 
   const groups = new Map(); // sectionTitle -> array of row arrays
@@ -123,11 +110,9 @@ function groupBySection(rows) {
 }
 
 function renderSectionTable(sectionTitle, header, sectionRows) {
-  // header[0] = section column name, use B..N for columns
   const colNames = header.slice(1);
-  const bodyRows = sectionRows.map((r) => r.slice(1));
+  const bodyRows = sectionRows.map(r => r.slice(1));
 
-  // Section wrapper using your existing "section" style
   const sectionEl = document.createElement("section");
   sectionEl.className = "section";
 
@@ -145,10 +130,9 @@ function renderSectionTable(sectionTitle, header, sectionRows) {
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
 
-  // THEAD
   const thead = document.createElement("thead");
   const trh = document.createElement("tr");
-  colNames.forEach((name) => {
+  colNames.forEach(name => {
     const th = document.createElement("th");
     th.textContent = name;
     th.style.textAlign = "left";
@@ -163,7 +147,6 @@ function renderSectionTable(sectionTitle, header, sectionRows) {
   thead.appendChild(trh);
   table.appendChild(thead);
 
-  // TBODY
   const tbody = document.createElement("tbody");
   bodyRows.forEach((r, idx) => {
     const tr = document.createElement("tr");
@@ -176,7 +159,6 @@ function renderSectionTable(sectionTitle, header, sectionRows) {
       td.style.borderBottom = "1px solid rgba(0,0,0,.06)";
       tr.appendChild(td);
     }
-
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -197,7 +179,6 @@ function renderAllSections(rows) {
 
   const { header, groups } = groupBySection(rows);
 
-  // Validación mínima: necesitamos al menos 2 columnas (A para título + algo más)
   if (header.length < 2) {
     setError("Tu sheet debe tener al menos 2 columnas: A=Subtítulo, B..=Datos.");
     return;
@@ -206,7 +187,6 @@ function renderAllSections(rows) {
   let totalDataRows = 0;
   for (const [, sectionRows] of groups) totalDataRows += sectionRows.length;
 
-  // Render sections in insertion order (como aparecen)
   for (const [sectionTitle, sectionRows] of groups) {
     const el = renderSectionTable(sectionTitle, header, sectionRows);
     els.sections.appendChild(el);
@@ -228,11 +208,7 @@ async function loadSheetOnce() {
   try {
     setError(null);
 
-    const res = await fetch(withNoCache(url), {
-      method: "GET",
-      cache: "no-store",
-    });
-
+    const res = await fetch(withNoCache(url), { method: "GET", cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status} (${res.statusText})`);
 
     const text = await res.text();
@@ -255,7 +231,7 @@ function startAutoRefresh(ms) {
 // Init
 // =========================
 document.addEventListener("DOMContentLoaded", () => {
-  els.btnRefresh = $("btnRefresh");
+  els.btnOpenSheet = $("btnOpenSheet");
   els.lastUpdate = $("lastUpdate");
   els.rowCount = $("rowCount");
   els.refreshInfo = $("refreshInfo");
@@ -263,7 +239,8 @@ document.addEventListener("DOMContentLoaded", () => {
   els.errorText = $("errorText");
   els.sections = $("sections");
 
-  if (els.btnRefresh) els.btnRefresh.addEventListener("click", loadSheetOnce);
+  // Asegura que el link sea el correcto aunque alguien edite el HTML
+  if (els.btnOpenSheet) els.btnOpenSheet.href = SHEET_EDIT_URL;
 
   loadSheetOnce();
   startAutoRefresh(DEFAULT_REFRESH_MS);
