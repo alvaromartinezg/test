@@ -1,60 +1,129 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Transmission Links database</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Renting</title>
 
-  <!-- Evitar cache -->
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
+<style>
+body{
+    font-family: Arial;
+    background:#f4f4f4;
+    padding:20px;
+}
 
-  <link rel="stylesheet" href="css/styles.css" />
-  <script src="js/main.js" defer></script>
+.card{
+    background:white;
+    max-width:700px;
+    margin:auto;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.1);
+}
+
+input{
+    width:100%;
+    padding:10px;
+    margin-top:10px;
+    box-sizing:border-box;
+}
+
+button{
+    margin-top:15px;
+    padding:12px;
+    width:100%;
+    border:none;
+    background:#0099ff;
+    color:white;
+    font-size:16px;
+    border-radius:6px;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#0077cc;
+}
+
+pre{
+    background:#111;
+    color:#0f0;
+    padding:10px;
+    overflow:auto;
+    border-radius:6px;
+}
+
+img{
+    width:100%;
+    margin-top:20px;
+    border-radius:10px;
+}
+</style>
 </head>
 
 <body>
-  <header class="header">
-    <div class="header-left">
-      <!-- Si no tienes logo, borra esta línea o sube img/bitel_logo.png -->
-      <img src="img/bitel_logo.png" alt="Logo" />
 
-      <div class="title-wrap">
-        <div class="title">Transmission Links database</div>
-      </div>
-    </div>
+<div class="card">
 
-    <!-- Derecha: Edit + fecha debajo -->
-    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px; margin-left:auto; text-align:right;">
-      <a
-        id="btnOpenSheet"
-        class="btn header-btn"
-        href="https://docs.google.com/spreadsheets/d/1t6MH60weJzUU30DJZ1s3tjhOtjsX1IqersjEL15roZs/edit?usp=sharing"
-        target="_blank"
-        rel="noopener noreferrer"
-        style="text-decoration:none;"
-      >
-        Edit
-      </a>
+<h2>Generador de Ruta</h2>
 
-      <div style="font-size:12px; opacity:.85; white-space:nowrap;">
-        Last update: <span id="lastUpdate">—</span>
-      </div>
-    </div>
-  </header>
+<input type="text" id="estacion" placeholder="Estación">
+<input type="number" id="lat" placeholder="Latitud" step="any">
+<input type="number" id="lon" placeholder="Longitud" step="any">
 
-  <main class="container">
-    <!-- Secciones dinámicas según Columna A -->
-    <div id="sections"></div>
+<button onclick="generarRuta()">
+Generar Ruta
+</button>
 
-    <!-- Solo para mostrar errores si ocurren -->
-    <div id="errorBox" class="muted"
-         style="margin-top:10px; display:none; color:#7a1f1f; font-weight:700;">
-      Error: <span id="errorText"></span>
-    </div>
+<h3>Resultado</h3>
 
-    <div class="footer">© Transmission Links database</div>
-  </main>
+<pre id="resultado"></pre>
+
+<img id="imagen" style="display:none;">
+
+</div>
+
+<script>
+
+async function generarRuta(){
+
+    const estacion = document.getElementById("estacion").value;
+    const lat = parseFloat(document.getElementById("lat").value);
+    const lon = parseFloat(document.getElementById("lon").value);
+
+    document.getElementById("resultado").textContent = "Procesando...";
+
+    try{
+
+        const response = await fetch(
+            "http://api1-renting.38.250.161.19.nip.io/generar-ruta",
+            {
+                method:"POST",
+                headers:{
+                    "Content-Type":"application/json"
+                },
+                body: JSON.stringify({
+                    estacion,
+                    lat,
+                    lon
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        document.getElementById("resultado").textContent =
+            JSON.stringify(data, null, 2);
+
+    }catch(error){
+
+        document.getElementById("resultado").textContent =
+            error.toString();
+
+    }
+
+}
+
+</script>
+
 </body>
 </html>
