@@ -44,12 +44,14 @@ button:hover{
     background:#0077cc;
 }
 
-pre{
+#resultado{
     background:#111;
     color:#0f0;
     padding:10px;
     overflow:auto;
     border-radius:6px;
+    white-space:pre-wrap;
+    font-family:Consolas, monospace;
 }
 
 img{
@@ -66,31 +68,33 @@ img{
 
 <h2>Generador de Ruta</h2>
 
-<input type="text" id="estacion" placeholder="Estación">
-<input type="number" id="lat" placeholder="Latitud" step="any">
-<input type="number" id="lon" placeholder="Longitud" step="any">
+<input type="text" id="estacion" placeholder="Estación" value="ANC0291">
+<input type="number" id="lat" placeholder="Latitud" step="any" value="-10.663731">
+<input type="number" id="lon" placeholder="Longitud" step="any" value="-76.249372">
 
-<button onclick="generarRuta()">
-Generar Ruta
-</button>
+<button onclick="generarRuta()">Generar Ruta</button>
 
 <h3>Resultado</h3>
 
-<pre id="resultado"></pre>
+<div id="resultado"></div>
 
 <img id="imagen" style="display:none;">
 
 </div>
 
 <script>
-
 async function generarRuta(){
 
-    const estacion = document.getElementById("estacion").value;
+    const estacion = document.getElementById("estacion").value.trim();
     const lat = parseFloat(document.getElementById("lat").value);
     const lon = parseFloat(document.getElementById("lon").value);
 
-    document.getElementById("resultado").textContent = "Procesando...";
+    const resultadoDiv = document.getElementById("resultado");
+    const imagen = document.getElementById("imagen");
+
+    imagen.style.display = "none";
+    imagen.src = "";
+    resultadoDiv.textContent = "Procesando...";
 
     try{
 
@@ -111,18 +115,28 @@ async function generarRuta(){
 
         const data = await response.json();
 
-        document.getElementById("resultado").textContent =
-            JSON.stringify(data, null, 2);
+        if(!response.ok || data.status !== "ok"){
+            resultadoDiv.textContent =
+                data.message || "Error procesando la solicitud";
+            return;
+        }
+
+        resultadoDiv.textContent = data.stdout || "Ruta generada correctamente.";
+
+        if(data.imagen_path){
+            const nombreImagen = data.imagen_path.split("/").pop();
+
+            const urlImagen =
+                `https://api1-renting.38.250.161.19.nip.io/imagenes/${nombreImagen}?t=${Date.now()}`;
+
+            imagen.src = urlImagen;
+            imagen.style.display = "block";
+        }
 
     }catch(error){
-
-        document.getElementById("resultado").textContent =
-            error.toString();
-
+        resultadoDiv.textContent = "Error: " + error.toString();
     }
-
 }
-
 </script>
 
 </body>
